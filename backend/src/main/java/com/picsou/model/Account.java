@@ -75,6 +75,15 @@ public class Account extends AuditableEntity {
     @Column(name = "logo_url", columnDefinition = "TEXT")
     private String logoUrl;
 
+    /**
+     * When the account-level logo backfill (accounts created outside the Enable Banking
+     * connection flow, e.g. Finary import) last attempted an institution-search match by
+     * {@link #provider} name. Bounds the backfill to a single attempt per account, same
+     * pattern as {@link Requisition#getLogoBackfillAttemptedAt()}.
+     */
+    @Column(name = "logo_backfill_attempted_at")
+    private Instant logoBackfillAttemptedAt;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 

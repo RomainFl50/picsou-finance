@@ -170,6 +170,39 @@ public class SyncService {
         return responses;
     }
 
+    /**
+     * Best-effort logo backfill for accounts that never went through the Enable Banking
+     * connection flow (Finary import, other sidecars) and therefore have no Requisition
+     * for {@link #ensureLogoUrl} to backfill a logo onto. If the account's own
+     * {@code provider} name still matches a real Enable Banking institution (e.g. a
+     * Finary-imported "Boursorama Banque" account), the logo is resolved directly from
+     * the account.
+     *
+     * <p>Bounded to a single attempt per account via {@code logoBackfillAttemptedAt},
+     * same pattern as {@link #ensureLogoUrl}. There is no institutionId on a bare
+     * Account (no country hint), so the search is unscoped across all countries;
+     * {@link #findInstitution} still falls back to a case-insensitive name match when
+     * no institutionId is supplied.
+     */
+    public void backfillAccountLogosByProvider(Long memberId) {
+        List<Account> candidates = accountRepository
+            .findByMemberIdAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNullAndParentAccountIdIsNull(memberId);
+        for (Account account : candidates) {
+            try {
+                List<BankConnectorPort.InstitutionData> matches =
+                    bankConnector.searchInstitutions(account.getProvider(), null);
+                account.setLogoBackfillAttemptedAt(Instant.now());
+                findInstitution(matches, null, account.getProvider())
+                    .map(BankConnectorPort.InstitutionData::logoUrl)
+                    .ifPresent(account::setLogoUrl);
+                accountRepository.save(account);
+            } catch (Exception ex) {
+                log.warn("Could not backfill logo for account {} (provider={}): {}",
+                    account.getId(), account.getProvider(), ex.getMessage());
+            }
+        }
+    }
+
     /** Search available institutions. */
     @Transactional(readOnly = true)
     public List<BankConnectorPort.InstitutionData> searchInstitutions(String query, String country) {

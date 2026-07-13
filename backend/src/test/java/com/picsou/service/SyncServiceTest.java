@@ -237,6 +237,88 @@ class SyncServiceTest {
         assertThat(requisition.getLogoUrl()).isEqualTo("https://logos.example/revolut-fr.png");
     }
 
+    /**
+     * Accounts created outside the Enable Banking connection flow (Finary import, other
+     * sidecars) never go through {@link SyncService#ensureLogoUrl} -- there is no Requisition
+     * to attach a logo to. If the account's own {@code provider} name still matches a real
+     * Enable Banking institution, the account-level backfill should resolve it directly.
+     */
+    @Test
+    void backfillAccountLogosByProvider_resolvesLogoFromInstitutionSearchByProviderName() {
+        Long memberId = 6L;
+        FamilyMember member = FamilyMember.builder().id(memberId).displayName("Owner").build();
+
+        Account account = Account.builder()
+            .id(64L)
+            .member(member)
+            .name("Account")
+            .provider("Boursorama Banque")
+            .logoUrl(null)
+            .isManual(false)
+            .build();
+
+        when(accountRepository
+            .findByMemberIdAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNullAndParentAccountIdIsNull(memberId))
+            .thenReturn(List.of(account));
+
+        InstitutionData match = new InstitutionData("BOURSORAMA_BANQUE::FR", "Boursorama Banque", "BOUSFRPP",
+            "https://logos.example/boursorama.png", "FR");
+        when(bankConnector.searchInstitutions("Boursorama Banque", null)).thenReturn(List.of(match));
+
+        syncService.backfillAccountLogosByProvider(memberId);
+
+        assertThat(account.getLogoUrl()).isEqualTo("https://logos.example/boursorama.png");
+        assertThat(account.getLogoBackfillAttemptedAt()).isNotNull();
+        verify(accountRepository).save(account);
+    }
+
+    /** Once a backfill attempt has run (hit or miss), it must not be retried on every subsequent sync. */
+    @Test
+    void backfillAccountLogosByProvider_doesNotRetryOnceAttempted() {
+        Long memberId = 7L;
+
+        // The repository query itself excludes accounts with a non-null logoBackfillAttemptedAt,
+        // so an already-attempted account is simply never returned as a candidate.
+        when(accountRepository
+            .findByMemberIdAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNullAndParentAccountIdIsNull(memberId))
+            .thenReturn(List.of());
+
+        syncService.backfillAccountLogosByProvider(memberId);
+
+        verify(bankConnector, never()).searchInstitutions(any(), any());
+        verify(accountRepository, never()).save(any(Account.class));
+    }
+
+    /** A failed institution search for one account must not stop the backfill for the rest. */
+    @Test
+    void backfillAccountLogosByProvider_searchFailureDoesNotBreakLoop() {
+        Long memberId = 8L;
+        FamilyMember member = FamilyMember.builder().id(memberId).displayName("Owner").build();
+
+        Account broken = Account.builder()
+            .id(70L).member(member).name("Account").provider("Unknown Bank").logoUrl(null).isManual(false).build();
+        Account healthy = Account.builder()
+            .id(71L).member(member).name("Account").provider("Boursorama Banque").logoUrl(null).isManual(false).build();
+
+        when(accountRepository
+            .findByMemberIdAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNullAndParentAccountIdIsNull(memberId))
+            .thenReturn(List.of(broken, healthy));
+
+        when(bankConnector.searchInstitutions("Unknown Bank", null))
+            .thenThrow(new RuntimeException("provider unavailable"));
+        InstitutionData match = new InstitutionData("BOURSORAMA_BANQUE::FR", "Boursorama Banque", "BOUSFRPP",
+            "https://logos.example/boursorama.png", "FR");
+        when(bankConnector.searchInstitutions("Boursorama Banque", null)).thenReturn(List.of(match));
+
+        syncService.backfillAccountLogosByProvider(memberId);
+
+        assertThat(broken.getLogoUrl()).isNull();
+        assertThat(broken.getLogoBackfillAttemptedAt()).isNull();
+        verify(accountRepository, never()).save(broken);
+        assertThat(healthy.getLogoUrl()).isEqualTo("https://logos.example/boursorama.png");
+        verify(accountRepository).save(healthy);
+    }
+
     /** A failed institution search during backfill must not break the resync loop. */
     @Test
     void resyncAll_backfillFailureDoesNotBreakSync() {

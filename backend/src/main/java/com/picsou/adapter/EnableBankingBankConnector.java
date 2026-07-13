@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
@@ -39,6 +40,14 @@ public class EnableBankingBankConnector implements BankConnectorPort {
     private static final Logger log = LoggerFactory.getLogger(EnableBankingBankConnector.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
+    /**
+     * WebClient's default in-memory buffer limit (256KB) is exceeded by an unscoped
+     * (country=null) institution search, which asks Enable Banking for its full,
+     * all-countries catalog. Raised generously above any realistic catalog size --
+     * see docs/features/bank-logos.md.
+     */
+    private static final int MAX_RESPONSE_BUFFER_BYTES = 8 * 1024 * 1024;
+
     private final EnableBankingConfigProvider configProvider;
     private final WebClient webClient;
     private final int sessionPollAttempts;
@@ -58,6 +67,9 @@ public class EnableBankingBankConnector implements BankConnectorPort {
             .baseUrl(baseUrl)
             .defaultHeader("Accept", "application/json")
             .defaultHeader("Content-Type", "application/json")
+            .exchangeStrategies(ExchangeStrategies.builder()
+                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(MAX_RESPONSE_BUFFER_BYTES))
+                .build())
             .filter(buildLoggingFilter(callLogger))
             .build();
     }

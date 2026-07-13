@@ -10,7 +10,7 @@ Account cards on the Accounts page (`/accounts`) previously showed only a flat c
 
 ### Scope
 
-Only accounts connected via **Enable Banking** get a real logo — it's the sole active `BankConnectorPort` implementation that returns one (see [bank-sync.md](./bank-sync.md)). Powens (disabled, experimental) hardcodes `logoUrl = null`. Manual accounts, crypto exchanges/wallets, Trade Republic, BoursoBank, Finary, real estate, and loans have no logo source and always show the color fallback. There is no manual logo picker — `color` remains the only user-editable visual field (`ColorPicker` / `AccountForm` are unchanged).
+Only accounts whose logo can be resolved from **Enable Banking**'s institution catalog get a real logo (see [bank-sync.md](./bank-sync.md)) — either because they were connected via Enable Banking directly, or because their `provider` name happens to match a real Enable Banking institution (see "Account-level backfill by provider name" below). Powens (disabled, experimental) hardcodes `logoUrl = null`. Accounts whose provider has no match in Enable Banking's catalog (crypto exchanges/wallets, Trade Republic, screen-scraped Bourso PEA/LEP, real estate, loans, manual entries with an arbitrary provider string) have no logo source and always show the color fallback. There is no manual logo picker — `color` remains the only user-editable visual field (`ColorPicker` / `AccountForm` are unchanged).
 
 ### Capture at connection time
 
@@ -24,16 +24,23 @@ Requisitions created before this feature shipped (or whose initial lookup missed
 
 The backfill is bounded to a single attempt per requisition via `Requisition.logoBackfillAttemptedAt`: the marker is set as soon as the search call completes (hit or miss), so a permanent miss (renamed institution, no provider logo) is never retried on subsequent syncs. A failed *network* call does not set the marker, so a transient provider outage can still be retried next sync. A failed or empty lookup is otherwise swallowed (logged as a warning) — the requisition simply stays logo-less.
 
+### Account-level backfill by provider name (accounts with no Requisition)
+
+Accounts created outside the Enable Banking connection flow — Finary import, other sidecars — have no `Requisition` for the above backfill to attach a logo to, even when their `provider` name matches a real Enable Banking institution (e.g. a Finary-imported "Boursorama Banque" checking account). `SyncService.backfillAccountLogosByProvider()` covers this case directly: at the top of the daily scheduler (`SchedulerService.dailyBankSync()`), it looks up every account with a non-null `provider`, no `logoUrl`, no `Account.logoBackfillAttemptedAt`, and no `parentAccountId` (pockets are excluded — they never show a logo, see "Rendering" below), and re-runs the same `searchInstitutions` + `findInstitution` match used by `ensureLogoUrl`. There is no institutionId on a bare `Account` (no country hint), so the search is unscoped across all countries; `findInstitution` still falls back to its case-insensitive name match. Bounded to a single attempt per account via `Account.logoBackfillAttemptedAt`, same pattern as the requisition-level backfill. This does **not** help providers with no presence in Enable Banking's catalog at all (Trade Republic, screen-scraped Bourso PEA/LEP, crypto wallets/exchanges) — those still show the color fallback.
+
 ### Rendering
 
 `AccountCard.tsx`'s `AccountAvatar` and `AddAccountModal.tsx`'s `InstitutionLogo` are built on the shared `Avatar`/`AvatarImage`/`AvatarFallback` primitives (`components/ui/avatar.tsx`, Radix-based) rather than a hand-rolled `<img onError>` + `useState`. Radix re-attempts loading whenever `src` changes (e.g. a null logo becoming valid after backfill) and falls back to the color circle / `Landmark` icon automatically on load failure, with no risk of a stale `failed` flag latching across re-renders. The account detail page (`AccountDetailPage.tsx`) and the PnL chart legend (`AccountsStackedChart.tsx`) were intentionally left untouched — they use `account.color` as a small decorative dot/line color, not as the account's primary identity, and are out of scope for this change.
 
 ### Key files
 
-- `backend/src/main/java/com/picsou/model/Account.java` — `logoUrl` column
+- `backend/src/main/java/com/picsou/model/Account.java` — `logoUrl` + `logoBackfillAttemptedAt` columns
 - `backend/src/main/java/com/picsou/model/Requisition.java` — `logoUrl` + `logoBackfillAttemptedAt` columns
-- `backend/src/main/java/com/picsou/service/SyncService.java` — `resolveLogoUrl()`, `ensureLogoUrl()`, `findInstitution()`, `upsertAccount()` copy logic
+- `backend/src/main/java/com/picsou/service/SyncService.java` — `resolveLogoUrl()`, `ensureLogoUrl()`, `backfillAccountLogosByProvider()`, `findInstitution()`, `upsertAccount()` copy logic
+- `backend/src/main/java/com/picsou/repository/AccountRepository.java` — candidate query for `backfillAccountLogosByProvider()`
+- `backend/src/main/java/com/picsou/service/SchedulerService.java` — calls `backfillAccountLogosByProvider()` from `dailyBankSync()`
 - `backend/src/main/resources/db/migration/V50__account_bank_logo.sql`
+- `backend/src/main/resources/db/migration/V55__account_logo_backfill_attempted.sql`
 - `frontend/src/components/shared/AccountCard.tsx` — `AccountAvatar` sub-component
 - `frontend/src/components/shared/AddAccountModal.tsx` — `InstitutionLogo` (bank search list preview)
 - `frontend/src/components/ui/avatar.tsx` — shared Radix Avatar primitives
@@ -49,13 +56,15 @@ The backfill is bounded to a single attempt per requisition via `Requisition.log
 
 ## Gotchas / Pitfalls
 
+- **Unscoped institution search needs a larger WebClient buffer.** `backfillAccountLogosByProvider()` has no country to scope the search with (a bare `Account` has no `institutionId` to parse one from), so `searchInstitutions(name, null)` fetches Enable Banking's full, all-countries catalog. That response exceeds WebClient/Reactor Netty's default in-memory buffer limit (256KB), failing every account with `DataBufferLimitException: Exceeded limit on max bytes to buffer`. `EnableBankingBankConnector`'s `WebClient` is built with an explicit `ExchangeStrategies` raising `maxInMemorySize` to 8MB to absorb it. Caught by `EnableBankingBankConnectorTest#searchInstitutions_unscopedCatalogLargerThan256kb_stillSucceeds`, which serves a real >256KB catalog from a local `HttpServer` — a Mockito-mocked `bankConnector` in `SyncServiceTest` can't exercise the real HTTP client's codec limits, so this class of bug is only caught by exercising the real WebClient.
 - **Powens never provides a logo.** `PowensBankConnector.searchInstitutions()` hardcodes `logoUrl = null` for every result. If Powens is ever re-enabled, its accounts will always show the color fallback until the adapter is updated.
 - **Backfill match is best-effort, bounded to one attempt.** `ensureLogoUrl()` matches by institution id first, then falls back to a case-insensitive name match, scoped to the requisition's own country. A renamed institution on the provider side may never match — `logoBackfillAttemptedAt` prevents retrying forever, and the account just keeps showing its color, which degrades gracefully.
 - **Rendering fallback is render-only.** A broken logo URL is not written back to the database — the same broken URL is retried on every mount (Radix re-attempts whenever `src` changes). This is intentional (the URL may become valid again, e.g. a CDN blip) but means a permanently-dead logo shows the color fallback every time rather than healing itself in storage.
 
 ## Tests
 
-- `backend/src/test/java/com/picsou/service/SyncServiceTest.java` — logo resolved server-side at `initiateConnection()` by exact institution id; logo copied from `Requisition` to a new `Account`; backfill sets `Requisition.logoUrl` on resync scoped by country; backfill isn't retried once `logoBackfillAttemptedAt` is set; id match wins over a same-named institution from another country; a failed backfill lookup doesn't break the sync.
+- `backend/src/test/java/com/picsou/service/SyncServiceTest.java` — logo resolved server-side at `initiateConnection()` by exact institution id; logo copied from `Requisition` to a new `Account`; backfill sets `Requisition.logoUrl` on resync scoped by country; backfill isn't retried once `logoBackfillAttemptedAt` is set; id match wins over a same-named institution from another country; a failed backfill lookup doesn't break the sync; `backfillAccountLogosByProvider()` resolves a logo by provider name for an account with no Requisition, doesn't retry once attempted, and isolates a per-account search failure from the rest of the loop.
+- `backend/src/test/java/com/picsou/adapter/EnableBankingBankConnectorTest.java` — `searchInstitutions()` against an unscoped, >256KB real institution catalog (served by a local `HttpServer`) still succeeds rather than hitting WebClient's default buffer limit.
 - `frontend/src/components/shared/AccountCard.test.tsx` — renders the logo image when the (stubbed) image load succeeds, the color fallback when absent, and falls back when the image load fails.
 
 ## Links

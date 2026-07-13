@@ -113,6 +113,15 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     List<Account> findAllPocketsByMemberId(@Param("memberId") Long memberId);
 
     /**
+     * Candidates for the account-level logo backfill: a known provider name, no logo yet,
+     * no backfill attempt yet, and not a pocket sub-account (pockets never show a logo --
+     * see docs/features/bank-logos.md). Covers accounts synced outside the Enable Banking
+     * connection flow (Finary import, other sidecars) that have no Requisition to backfill
+     * a logo onto instead.
+     */
+    List<Account> findByMemberIdAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNullAndParentAccountIdIsNull(Long memberId);
+
+    /**
      * Lifts soft-delete tombstones for all Trade Republic accounts of a member.
      * Called on explicit re-authentication (completeAuth) so the upcoming sync can
      * find and update — rather than skip — previously-deleted accounts.

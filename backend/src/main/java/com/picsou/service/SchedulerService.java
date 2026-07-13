@@ -97,6 +97,12 @@ public class SchedulerService {
                 log.error("Daily retry of FAILED Enable Banking sessions failed for member {}", memberId, ex);
             }
 
+            try {
+                syncService.backfillAccountLogosByProvider(memberId);
+            } catch (Exception ex) {
+                log.error("Daily account logo backfill failed for member {}", memberId, ex);
+            }
+
             trSyncService.resyncIfSessionActive(memberId);
             boursoSyncService.resyncIfSessionActive(memberId);
 

@@ -3,12 +3,20 @@ package com.picsou.adapter;
 import com.picsou.config.EnableBankingConfigProvider;
 import com.picsou.exception.SyncException;
 import com.picsou.port.BankConnectorPort;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,8 +33,59 @@ class EnableBankingBankConnectorTest {
 
     @Mock EnableBankingConfigProvider configProvider;
 
+    private HttpServer fakeEnableBanking;
+
+    @AfterEach
+    void stopFakeServer() {
+        if (fakeEnableBanking != null) {
+            fakeEnableBanking.stop(0);
+        }
+    }
+
     private EnableBankingBankConnector connector() {
         return new EnableBankingBankConnector(configProvider, new com.picsou.service.EnableBankingCallLogger(), "https://api.enablebanking.test", 8, 2000);
+    }
+
+    private EnableBankingBankConnector connectorAgainst(String baseUrl) {
+        return new EnableBankingBankConnector(configProvider, new com.picsou.service.EnableBankingCallLogger(), baseUrl, 8, 2000);
+    }
+
+    /** Starts a local HTTP server serving a canned "/aspsps" body, returns its base URL. */
+    private String startFakeEnableBanking(String responseBody) throws IOException {
+        fakeEnableBanking = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        fakeEnableBanking.createContext("/aspsps", exchange -> {
+            byte[] bytes = responseBody.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        fakeEnableBanking.start();
+        return "http://localhost:" + fakeEnableBanking.getAddress().getPort();
+    }
+
+    /** A JSON "/aspsps" body of unscoped-catalog size (~all countries), well over 256KB. */
+    private String largeAspspsCatalogJson() {
+        StringBuilder sb = new StringBuilder("{\"aspsps\":[");
+        for (int i = 0; i < 2000; i++) {
+            if (i > 0) sb.append(",");
+            sb.append("{\"name\":\"Bank Number ").append(i).append(" Société Générale\",")
+                .append("\"bic\":\"BANK").append(i).append("FRPP\",")
+                .append("\"logo\":\"https://logos.example.com/very/long/path/to/a/bank/logo/asset/that/pads/out/the/payload/bank-")
+                .append(i).append(".png\",")
+                .append("\"country\":\"FR\"}");
+        }
+        sb.append("]}");
+        return sb.toString();
+    }
+
+    private void stubValidJwtConfig() throws NoSuchAlgorithmException {
+        KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
+        gen.initialize(2048);
+        KeyPair keyPair = gen.generateKeyPair();
+        lenient().when(configProvider.applicationId()).thenReturn(Optional.of("app-id"));
+        lenient().when(configProvider.keyId()).thenReturn(Optional.of("key-id"));
+        lenient().when(configProvider.privateKey()).thenReturn(Optional.of(keyPair.getPrivate()));
     }
 
     // ─── Config-validation tests ──────────────────────────────────────────────
@@ -51,6 +110,27 @@ class EnableBankingBankConnectorTest {
         assertThatThrownBy(() -> connector().searchInstitutions("ci", "FR"))
             .isInstanceOf(SyncException.class)
             .hasMessageContaining("Application ID");
+    }
+
+    /**
+     * The bug behind SyncService.backfillAccountLogosByProvider failing for every account in
+     * production: an unscoped search (no country, e.g. from a bare Account with no institutionId
+     * to parse a country from) asks Enable Banking for its full, all-countries institution
+     * catalog. That real response is large enough to exceed WebClient/Reactor Netty's default
+     * in-memory buffer limit (256KB) — the search must still succeed and find the match, not
+     * fail with a buffer-limit error just because the server responded 200 with valid JSON.
+     */
+    @Test
+    void searchInstitutions_unscopedCatalogLargerThan256kb_stillSucceeds() throws Exception {
+        stubValidJwtConfig();
+        String catalogJson = largeAspspsCatalogJson();
+        assertThat(catalogJson.getBytes(StandardCharsets.UTF_8).length).isGreaterThan(262_144);
+        String baseUrl = startFakeEnableBanking(catalogJson);
+
+        List<BankConnectorPort.InstitutionData> result =
+            connectorAgainst(baseUrl).searchInstitutions("Bank Number 1999 Société Générale", null);
+
+        assertThat(result).isNotEmpty();
     }
 
     // ─── fetchBalances: per-account error isolation ────────────────────────────
