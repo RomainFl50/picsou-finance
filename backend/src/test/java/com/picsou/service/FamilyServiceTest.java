@@ -1,5 +1,7 @@
 package com.picsou.service;
 
+import com.picsou.dto.DisplaySettingsRequest;
+import com.picsou.dto.DisplaySettingsResponse;
 import com.picsou.dto.SharingSettingsRequest;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
@@ -167,6 +169,40 @@ class FamilyServiceTest {
         when(memberRepository.findById(3L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> familyService.deleteMember(3L, 1L))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("Member not found");
+    }
+
+    // ─── Display settings (self-service) ───────────────────────────────────
+
+    @Test
+    void getDisplaySettings_returnsMembersOwnPreference() {
+        FamilyMember me = member("Chloé");
+        me.setShowBankLogos(false);
+        when(memberRepository.findById(3L)).thenReturn(Optional.of(me));
+
+        DisplaySettingsResponse result = familyService.getDisplaySettings(3L);
+
+        assertThat(result.showBankLogos()).isFalse();
+    }
+
+    @Test
+    void updateDisplaySettings_savesAndReturnsNewValue() {
+        FamilyMember me = member("Chloé");
+        when(memberRepository.findById(3L)).thenReturn(Optional.of(me));
+
+        DisplaySettingsResponse result =
+            familyService.updateDisplaySettings(3L, new DisplaySettingsRequest(false));
+
+        assertThat(result.showBankLogos()).isFalse();
+        verify(memberRepository).save(me);
+    }
+
+    @Test
+    void getDisplaySettings_notFound_throws() {
+        when(memberRepository.findById(3L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> familyService.getDisplaySettings(3L))
             .isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("Member not found");
     }

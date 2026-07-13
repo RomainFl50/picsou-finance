@@ -584,6 +584,11 @@ export interface BudgetSettingsRequest {
   aiConfidenceThreshold: number
 }
 
+/** Personal display preference: whether bank logos are shown on account cards. */
+export interface DisplaySettings {
+  showBankLogos: boolean
+}
+
 /** Live status of an async AI categorization job. */
 export interface AiJobStatus {
   running: boolean

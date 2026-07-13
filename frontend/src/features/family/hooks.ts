@@ -100,3 +100,18 @@ export function useGoalContributions(goalId: number) {
     enabled: !!goalId,
   })
 }
+
+export function useDisplaySettings() {
+  return useQuery({
+    queryKey: ['family', 'display-settings'],
+    queryFn: familyApi.getDisplaySettings,
+  })
+}
+
+export function useUpdateDisplaySettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: familyApi.updateDisplaySettings,
+    onSuccess: (data) => qc.setQueryData(['family', 'display-settings'], data),
+  })
+}

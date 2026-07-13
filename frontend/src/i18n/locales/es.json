@@ -566,6 +566,7 @@
     "sidebarStyle": "Estilo de la barra lateral",
     "sidebarStyleCurrent": "Actual",
     "sidebarStyleClassic": "Clásico",
+    "showBankLogos": "Mostrar logotipos bancarios en las tarjetas de cuenta",
     "account": "Cuenta",
     "accountDescription": "Gestiona tu cuenta",
     "username": "Nombre de usuario",

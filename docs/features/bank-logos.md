@@ -28,6 +28,10 @@ The backfill is bounded to a single attempt per requisition via `Requisition.log
 
 Accounts created outside the Enable Banking connection flow — Finary import, other sidecars — have no `Requisition` for the above backfill to attach a logo to, even when their `provider` name matches a real Enable Banking institution (e.g. a Finary-imported "Boursorama Banque" checking account). `SyncService.backfillAccountLogosByProvider()` covers this case directly: at the top of the daily scheduler (`SchedulerService.dailyBankSync()`), it looks up every account with a non-null `provider`, no `logoUrl`, no `Account.logoBackfillAttemptedAt`, and no `parentAccountId` (pockets are excluded — they never show a logo, see "Rendering" below), and re-runs the same `searchInstitutions` + `findInstitution` match used by `ensureLogoUrl`. There is no institutionId on a bare `Account` (no country hint), so the search is unscoped across all countries; `findInstitution` still falls back to its case-insensitive name match. Bounded to a single attempt per account via `Account.logoBackfillAttemptedAt`, same pattern as the requisition-level backfill. This does **not** help providers with no presence in Enable Banking's catalog at all (Trade Republic, screen-scraped Bourso PEA/LEP, crypto wallets/exchanges) — those still show the color fallback.
 
+### Personal opt-out (Settings > Appearance)
+
+Some family members prefer the flat color avatars over real bank logos. `FamilyMember.showBankLogos` (default `true`) is a self-service, per-member preference — `GET`/`PUT /api/family/display-settings` (`FamilyController`, `FamilyService`), scoped to `UserContext.currentMemberId()` like the sharing-settings endpoints on the same controller. `AccountsPage.tsx` reads it once via `useDisplaySettings()` (`features/family/hooks.ts`) and passes it down as `AccountCard`'s `showBankLogos` prop (default `true` so existing callers/tests are unaffected); `AccountCard` then simply never passes `account.logoUrl` to `AccountAvatar` when the preference is off, regardless of whether a logo was actually resolved server-side. The toggle lives in `SettingsPage.tsx`'s Appearance section, next to theme/sidebar style.
+
 ### Rendering
 
 `AccountCard.tsx`'s `AccountAvatar` and `AddAccountModal.tsx`'s `InstitutionLogo` are built on the shared `Avatar`/`AvatarImage`/`AvatarFallback` primitives (`components/ui/avatar.tsx`, Radix-based) rather than a hand-rolled `<img onError>` + `useState`. Radix re-attempts loading whenever `src` changes (e.g. a null logo becoming valid after backfill) and falls back to the color circle / `Landmark` icon automatically on load failure, with no risk of a stale `failed` flag latching across re-renders. The account detail page (`AccountDetailPage.tsx`) and the PnL chart legend (`AccountsStackedChart.tsx`) were intentionally left untouched — they use `account.color` as a small decorative dot/line color, not as the account's primary identity, and are out of scope for this change.
@@ -41,9 +45,15 @@ Accounts created outside the Enable Banking connection flow — Finary import, o
 - `backend/src/main/java/com/picsou/service/SchedulerService.java` — calls `backfillAccountLogosByProvider()` from `dailyBankSync()`
 - `backend/src/main/resources/db/migration/V50__account_bank_logo.sql`
 - `backend/src/main/resources/db/migration/V55__account_logo_backfill_attempted.sql`
-- `frontend/src/components/shared/AccountCard.tsx` — `AccountAvatar` sub-component
+- `frontend/src/components/shared/AccountCard.tsx` — `AccountAvatar` sub-component, `showBankLogos` prop
 - `frontend/src/components/shared/AddAccountModal.tsx` — `InstitutionLogo` (bank search list preview)
 - `frontend/src/components/ui/avatar.tsx` — shared Radix Avatar primitives
+- `frontend/src/pages/settings/SettingsPage.tsx` — the opt-out toggle (Appearance section)
+- `frontend/src/features/family/{api,hooks}.ts` — `useDisplaySettings()` / `useUpdateDisplaySettings()`
+- `backend/src/main/java/com/picsou/model/FamilyMember.java` — `showBankLogos` column
+- `backend/src/main/java/com/picsou/service/FamilyService.java` — `getDisplaySettings()`/`updateDisplaySettings()`
+- `backend/src/main/java/com/picsou/controller/FamilyController.java` — `GET`/`PUT /api/family/display-settings`
+- `backend/src/main/resources/db/migration/V56__family_member_show_bank_logos.sql`
 
 ## Technical choices
 
@@ -65,7 +75,8 @@ Accounts created outside the Enable Banking connection flow — Finary import, o
 
 - `backend/src/test/java/com/picsou/service/SyncServiceTest.java` — logo resolved server-side at `initiateConnection()` by exact institution id; logo copied from `Requisition` to a new `Account`; backfill sets `Requisition.logoUrl` on resync scoped by country; backfill isn't retried once `logoBackfillAttemptedAt` is set; id match wins over a same-named institution from another country; a failed backfill lookup doesn't break the sync; `backfillAccountLogosByProvider()` resolves a logo by provider name for an account with no Requisition, doesn't retry once attempted, and isolates a per-account search failure from the rest of the loop.
 - `backend/src/test/java/com/picsou/adapter/EnableBankingBankConnectorTest.java` — `searchInstitutions()` against an unscoped, >256KB real institution catalog (served by a local `HttpServer`) still succeeds rather than hitting WebClient's default buffer limit.
-- `frontend/src/components/shared/AccountCard.test.tsx` — renders the logo image when the (stubbed) image load succeeds, the color fallback when absent, and falls back when the image load fails.
+- `frontend/src/components/shared/AccountCard.test.tsx` — renders the logo image when the (stubbed) image load succeeds, the color fallback when absent, falls back when the image load fails, and hides the logo when `showBankLogos={false}` even with a valid `logoUrl`.
+- `backend/src/test/java/com/picsou/service/FamilyServiceTest.java` — `getDisplaySettings()`/`updateDisplaySettings()` read/write the member's own preference; 404 when the member doesn't exist.
 
 ## Links
 

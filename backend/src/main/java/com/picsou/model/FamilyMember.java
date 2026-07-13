@@ -26,4 +26,13 @@ public class FamilyMember extends AuditableEntity {
     @Column(name = "is_managed", nullable = false)
     @Builder.Default
     private boolean managed = false;
+
+    /**
+     * Personal display preference: whether bank logos are shown on account cards
+     * (see docs/features/bank-logos.md). Defaults to on; some family members prefer
+     * the flat color avatars instead.
+     */
+    @Column(name = "show_bank_logos", nullable = false)
+    @Builder.Default
+    private boolean showBankLogos = true;
 }

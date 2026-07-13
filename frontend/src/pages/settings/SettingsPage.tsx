@@ -5,6 +5,7 @@ import { SUPPORTED_LOCALES, resolveLocale } from '@/i18n/locales'
 import { useNavigate } from 'react-router'
 import { useAuthStore } from '@/stores/auth-store'
 import { useAppStore, type DateFormat, type SidebarStyle } from '@/stores/app-store'
+import { useDisplaySettings, useUpdateDisplaySettings } from '@/features/family/hooks'
 import { useLogout } from '@/features/auth/hooks'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -17,6 +18,7 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { getErrorStatus } from '@/lib/errors'
 import {
   Paintbrush,
@@ -118,6 +120,8 @@ export function SettingsPage() {
   const logoutMutation = useLogout()
   const setUsername = useAuthStore((s) => s.setUsername)
   const { dateFormat, setDateFormat, sidebarStyle, setSidebarStyle } = useAppStore()
+  const { data: displaySettings } = useDisplaySettings()
+  const updateDisplaySettings = useUpdateDisplaySettings()
 
   // Username editing -------------------------------------------------------
   const [editingUsername, setEditingUsername] = useState(false)
@@ -250,6 +254,19 @@ export function SettingsPage() {
               options={sidebarStyleOptions}
               value={sidebarStyle}
               onChange={(v) => setSidebarStyle(v as SidebarStyle)}
+            />
+          </div>
+
+          {/* Bank logos on account cards */}
+          <div className="flex items-center justify-between">
+            <Label htmlFor="show-bank-logos" className="text-sm font-medium">
+              {t('settings.showBankLogos')}
+            </Label>
+            <Switch
+              id="show-bank-logos"
+              checked={displaySettings?.showBankLogos ?? true}
+              disabled={updateDisplaySettings.isPending}
+              onCheckedChange={(checked) => updateDisplaySettings.mutate({ showBankLogos: checked })}
             />
           </div>
         </div>

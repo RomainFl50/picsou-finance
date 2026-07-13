@@ -1,5 +1,7 @@
 package com.picsou.controller;
 
+import com.picsou.dto.DisplaySettingsRequest;
+import com.picsou.dto.DisplaySettingsResponse;
 import com.picsou.dto.FamilyMemberRequest;
 import com.picsou.dto.FamilyMemberResponse;
 import com.picsou.dto.SharingSettingsRequest;
@@ -93,6 +95,20 @@ public class FamilyController {
     ) {
         familyService.updateSharingSettings(userContext.currentMemberId(), req);
         return ResponseEntity.ok().build();
+    }
+
+    // ─── Display settings (any authenticated user) ──────────────────────
+
+    @GetMapping("/display-settings")
+    public DisplaySettingsResponse getDisplaySettings() {
+        return familyService.getDisplaySettings(userContext.currentMemberId());
+    }
+
+    @PutMapping("/display-settings")
+    public DisplaySettingsResponse updateDisplaySettings(
+        @Valid @RequestBody DisplaySettingsRequest req
+    ) {
+        return familyService.updateDisplaySettings(userContext.currentMemberId(), req);
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────

@@ -1,5 +1,7 @@
 package com.picsou.service;
 
+import com.picsou.dto.DisplaySettingsRequest;
+import com.picsou.dto.DisplaySettingsResponse;
 import com.picsou.dto.FamilyMemberRequest;
 import com.picsou.dto.FamilyMemberResponse;
 import com.picsou.dto.SharingSettingsRequest;
@@ -266,6 +268,21 @@ public class FamilyService {
                 .toList();
             sharedResourceRepository.saveAll(resources);
         }
+    }
+
+    public DisplaySettingsResponse getDisplaySettings(Long memberId) {
+        FamilyMember member = memberRepository.findById(memberId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Member not found"));
+        return new DisplaySettingsResponse(member.isShowBankLogos());
+    }
+
+    @Transactional
+    public DisplaySettingsResponse updateDisplaySettings(Long memberId, DisplaySettingsRequest req) {
+        FamilyMember member = memberRepository.findById(memberId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Member not found"));
+        member.setShowBankLogos(req.showBankLogos());
+        memberRepository.save(member);
+        return new DisplaySettingsResponse(member.isShowBankLogos());
     }
 
     private String validateResourceType(String resourceType) {

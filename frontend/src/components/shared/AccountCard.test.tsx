@@ -109,4 +109,18 @@ describe('AccountCard', () => {
       expect(dot).toHaveStyle({ backgroundColor: '#6366f1' })
     })
   })
+
+  it('hides the bank logo when showBankLogos is false, even with a valid logoUrl', async () => {
+    const account = { ...baseAccount, logoUrl: 'https://logos.example/bnp.png' }
+    const { container } = render(<AccountCard account={account} showBankLogos={false} />)
+
+    // Give the (would-be) image load a chance to resolve and re-render, so a component
+    // that still attempted to load the logo despite showBankLogos={false} is caught here
+    // rather than by an accidental pre-microtask-flush timing false pass.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(container.querySelector('img')).not.toBeInTheDocument()
+    const dot = container.querySelector('[style*="background-color"]')
+    expect(dot).toHaveStyle({ backgroundColor: '#6366f1' })
+  })
 })

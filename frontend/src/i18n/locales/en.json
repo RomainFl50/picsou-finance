@@ -900,6 +900,7 @@
     "sidebarStyle": "Sidebar style",
     "sidebarStyleCurrent": "Current",
     "sidebarStyleClassic": "Classic",
+    "showBankLogos": "Show bank logos on account cards",
     "account": "Account",
     "accountDescription": "Manage your account",
     "username": "Username",

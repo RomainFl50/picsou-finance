@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAccounts, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
+import { useDisplaySettings } from '@/features/family/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { useUnnamedPockets } from '@/features/pockets/hooks'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
@@ -124,6 +125,8 @@ export function AccountsPage() {
   const navigate = useNavigate()
 
   const { data: accounts, isLoading } = useAccounts()
+  const { data: displaySettings } = useDisplaySettings()
+  const showBankLogos = displaySettings?.showBankLogos ?? true
   const updateAccount = useUpdateAccount()
   const updateDebt = useUpdateDebtMetadata()
   const deleteAccount = useDeleteAccount()
@@ -500,6 +503,7 @@ export function AccountsPage() {
                 <AccountCard
                   account={wallet}
                   onClick={() => navigate(`/accounts/${wallet.id}`)}
+                  showBankLogos={showBankLogos}
                 />
                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button
@@ -567,6 +571,7 @@ export function AccountsPage() {
                   <AccountCard
                     account={account}
                     onClick={() => navigate(`/accounts/${account.id}`)}
+                    showBankLogos={showBankLogos}
                   />
                   <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button

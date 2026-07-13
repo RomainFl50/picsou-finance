@@ -1,4 +1,5 @@
 import { api } from '@/lib/api-client'
+import type { DisplaySettings } from '@/types/api'
 
 export interface FamilyMemberItem {
   id: number
@@ -77,4 +78,10 @@ export const familyApi = {
 
   getGoalContributions: (goalId: number) =>
     api.get<{ memberName: string; amount: number }[]>(`/family/goals/${goalId}/contributions`).then(r => r.data),
+
+  getDisplaySettings: () =>
+    api.get<DisplaySettings>('/family/display-settings').then(r => r.data),
+
+  updateDisplaySettings: (data: DisplaySettings) =>
+    api.put<DisplaySettings>('/family/display-settings', data).then(r => r.data),
 }

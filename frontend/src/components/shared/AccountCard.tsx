@@ -9,6 +9,8 @@ import { formatCurrency, formatDate, localeFromLanguage } from '@/lib/utils'
 interface AccountCardProps {
   account: Account
   onClick?: () => void
+  /** Personal display preference (Settings > Appearance). Defaults to on. */
+  showBankLogos?: boolean
 }
 
 function AccountAvatar({ logoUrl, color }: { logoUrl: string | null; color: string }) {
@@ -20,7 +22,7 @@ function AccountAvatar({ logoUrl, color }: { logoUrl: string | null; color: stri
   )
 }
 
-export function AccountCard({ account, onClick }: AccountCardProps) {
+export function AccountCard({ account, onClick, showBankLogos = true }: AccountCardProps) {
   const { t, i18n } = useTranslation()
   const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const isLoan = account.type === 'LOAN'
@@ -39,7 +41,7 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
       onClick={onClick}
     >
       <CardContent className="flex items-start gap-3 p-4">
-        <AccountAvatar logoUrl={account.logoUrl} color={account.color} />
+        <AccountAvatar logoUrl={showBankLogos ? account.logoUrl : null} color={account.color} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-medium">{account.name}</span>
