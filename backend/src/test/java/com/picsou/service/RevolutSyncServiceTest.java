@@ -502,6 +502,9 @@ class RevolutSyncServiceTest {
 
         when(accountRepository.findByExternalAccountIdAndMemberId("wallet-A", MEMBER_ID)).thenReturn(Optional.empty());
         when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId("wallet-A", MEMBER_ID)).thenReturn(false);
+        // wallet-B is deselected and not already active -- persistSelected's active-account check
+        // (see confirmSync_alreadyActiveSiblingNotSelected_stillRefreshesBalance) must find nothing for it.
+        when(accountRepository.findByExternalAccountIdAndMemberId("wallet-B", MEMBER_ID)).thenReturn(Optional.empty());
         when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member()));
         stubSaveAssignsIncrementingIds(new AtomicLong(800));
         stubToResponseMirrorsAccount();
@@ -558,6 +561,54 @@ class RevolutSyncServiceTest {
         service.confirmSync(MEMBER_ID, List.of("wallet-D"), false, false);
 
         verify(accountRepository, never()).restoreSoftDeletedRevolutAccount(anyLong(), anyString(), any());
+    }
+
+    /**
+     * The Add-account flow ({@code RevolutWizard.tsx}) only ever offers not-yet-imported accounts,
+     * so an already-imported sibling of a newly-selected (e.g. resurrected) account never lands in
+     * {@code selectedExternalIds}. It must still get its balance refreshed from the same discovery
+     * batch -- otherwise it stays frozen at its last-synced value until a separate plain
+     * "Synchroniser Revolut" (which selects everything). Only creation/resurrection is gated by
+     * selection; refreshing an already-active account is not.
+     */
+    @Test
+    void confirmSync_alreadyActiveSiblingNotSelected_stillRefreshesBalance() {
+        when(categorizationService.loadContext(MEMBER_ID))
+            .thenReturn(new CategorizationService.CategorizationContext(List.of(), Map.of()));
+
+        RevolutAccountData wallet = new RevolutAccountData(
+            "wallet-E", "Revolut", AccountType.CHECKING, null, bd("737.45"), "EUR", null, List.of());
+        RevolutAccountData sibling = new RevolutAccountData(
+            "pocket-E", "Compte courrant", AccountType.CHECKING, null, bd("537.63"), "EUR", "wallet-E", List.of());
+        when(progressService.takePendingDiscovery(MEMBER_ID)).thenReturn(List.of(wallet, sibling));
+
+        // wallet-E is soft-deleted (being resurrected); pocket-E is already active with a stale balance.
+        // Mirrors confirmSync_voluntaryTrue_liftsTombstoneForSelected: the tombstone-lift is a
+        // separate native update the mock can't reflect, so existsSoftDeleted stays false and the
+        // resurrection is modeled as the upsert's create-new branch.
+        when(accountRepository.findByExternalAccountIdAndMemberId("wallet-E", MEMBER_ID)).thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId("wallet-E", MEMBER_ID)).thenReturn(false);
+
+        Account activeSibling = Account.builder()
+            .id(950L).member(member()).name("Compte courrant").type(AccountType.CHECKING)
+            .provider("Revolut").currency("EUR").currentBalance(bd("598.63"))
+            .externalAccountId("pocket-E").parentAccountId(950L).isManual(false).color("#6366f1").build();
+        when(accountRepository.findByExternalAccountIdAndMemberId("pocket-E", MEMBER_ID))
+            .thenReturn(Optional.of(activeSibling));
+
+        when(familyMemberRepository.findById(MEMBER_ID)).thenReturn(Optional.of(member()));
+        stubSaveAssignsIncrementingIds(new AtomicLong(900));
+        stubToResponseMirrorsAccount();
+
+        // Only the wallet is selected -- pocket-E is deliberately left out, mirroring
+        // RevolutWizard.tsx filtering already-imported accounts out of the checklist entirely.
+        service.confirmSync(MEMBER_ID, List.of("wallet-E"), false, true);
+
+        ArgumentCaptor<Account> captor = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository, times(2)).save(captor.capture());
+        Account savedSibling = captor.getAllValues().stream()
+            .filter(a -> "pocket-E".equals(a.getExternalAccountId())).findFirst().orElseThrow();
+        assertThat(savedSibling.getCurrentBalance()).isEqualByComparingTo("537.63");
     }
 
     /** A confirm with nothing pending (e.g. a backend restart between discovery and confirm) fails clearly. */

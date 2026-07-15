@@ -242,19 +242,27 @@ public class RevolutSyncService {
     }
 
     /**
-     * Upserts the selected accounts only (parents first, so a pocket's parentAccountId resolves to
-     * its already-persisted wallet). Additive: deselecting an account here never deletes it --
-     * deletion only happens explicitly via the trash icon ({@code AccountService.delete}). Lifting
-     * tombstones for selected accounts is the caller's job (blanket in {@link #sync}, per-account in
-     * {@link #confirmSync} when {@code voluntary}). Must run inside a transaction -- callers wrap it
-     * in {@link #txTemplate}.
+     * Upserts the selected accounts (parents first, so a pocket's parentAccountId resolves to its
+     * already-persisted wallet), PLUS any discovered account that already maps to an existing active
+     * Picsou account, regardless of selection. The latter matters because the Add-account flow
+     * ({@code RevolutWizard.tsx}) only ever offers not-yet-imported accounts for selection -- an
+     * already-imported sibling never appears as a checkbox and so never lands in
+     * {@code selectedExternalIds} -- which used to leave its balance frozen at whatever it was at
+     * the last successful sync until a separate plain "Synchroniser Revolut" (which selects
+     * everything). Always refreshing already-active accounts closes that gap without touching the
+     * "additive" contract: deselecting (or never being offered) never deletes or resurrects anything
+     * here -- deletion only happens explicitly via the trash icon ({@code AccountService.delete}),
+     * and resurrection of a soft-deleted account still requires explicit selection (see below).
+     * Lifting tombstones for selected accounts is the caller's job (blanket in {@link #sync},
+     * per-account in {@link #confirmSync} when {@code voluntary}). Must run inside a transaction --
+     * callers wrap it in {@link #txTemplate}.
      */
     private List<AccountResponse> persistSelected(List<RevolutAccountData> discovered,
                                                   Set<String> selectedExternalIds, Long memberId) {
         CategorizationService.CategorizationContext ctx = categorizationService.loadContext(memberId);
 
         List<RevolutAccountData> chosen = discovered.stream()
-            .filter(d -> selectedExternalIds.contains(d.externalId()))
+            .filter(d -> selectedExternalIds.contains(d.externalId()) || findActiveAccount(d, memberId).isPresent())
             .sorted(Comparator.comparing(a -> a.parentExternalId() != null))
             .toList();
 
