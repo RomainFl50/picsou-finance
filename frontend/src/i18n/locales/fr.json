@@ -1053,6 +1053,54 @@
       "sync_trigger": {
         "label": "Synchronisation",
         "desc": "Rafraîchir les connexions bancaires, crypto et courtier existantes"
+      },
+      "budget_categories-read": {
+        "label": "Catégories budgétaires",
+        "desc": "Voir les catégories budgétaires (revenus, dépenses, virements)"
+      },
+      "budget_rules-read": {
+        "label": "Règles de catégorisation",
+        "desc": "Voir les règles de catégorisation automatique des transactions"
+      },
+      "budget_transactions-read": {
+        "label": "Transactions budgétées",
+        "desc": "Voir les transactions et leur catégorie"
+      },
+      "budget_recurring-read": {
+        "label": "Abonnements récurrents",
+        "desc": "Voir les abonnements, prélèvements et salaires détectés"
+      },
+      "budget_envelopes-read": {
+        "label": "Enveloppes budgétaires",
+        "desc": "Voir les enveloppes budgétaires et leur progression"
+      },
+      "budget_dashboard-read": {
+        "label": "Tableau de bord budget",
+        "desc": "Voir le flux de trésorerie, le top des catégories et les abonnements à venir"
+      },
+      "oauth2_discover": {
+        "label": "Découverte OAuth2",
+        "desc": "Consulter les informations publiques du serveur d'autorisation"
+      },
+      "oauth2_session-status": {
+        "label": "Statut de session",
+        "desc": "Consulter le statut et les permissions de la session en cours"
+      },
+      "budget_categories-write": {
+        "label": "Catégories budgétaires",
+        "desc": "Créer, modifier et archiver des catégories budgétaires"
+      },
+      "budget_rules-write": {
+        "label": "Règles de catégorisation",
+        "desc": "Créer, modifier et supprimer des règles de catégorisation"
+      },
+      "budget_transactions-write": {
+        "label": "Transactions budgétées",
+        "desc": "Modifier la catégorie des transactions"
+      },
+      "budget_envelopes-write": {
+        "label": "Enveloppes budgétaires",
+        "desc": "Créer, modifier et supprimer des enveloppes budgétaires"
       }
     }
   },

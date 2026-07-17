@@ -719,6 +719,54 @@
       "sync_trigger": {
         "label": "Sync",
         "desc": "Bestehende Bank-, Krypto- und Broker-Verbindungen aktualisieren"
+      },
+      "budget_categories-read": {
+        "label": "Budgetkategorien",
+        "desc": "Budgetkategorien einsehen (Einnahmen, Ausgaben, Umbuchungen)"
+      },
+      "budget_rules-read": {
+        "label": "Kategorisierungsregeln",
+        "desc": "Regeln zur automatischen Kategorisierung von Transaktionen einsehen"
+      },
+      "budget_transactions-read": {
+        "label": "Budgetierte Transaktionen",
+        "desc": "Transaktionen und ihre Kategorie einsehen"
+      },
+      "budget_recurring-read": {
+        "label": "Wiederkehrende Zahlungen",
+        "desc": "Erkannte Abos, Lastschriften und Gehälter einsehen"
+      },
+      "budget_envelopes-read": {
+        "label": "Budget-Umschläge",
+        "desc": "Budget-Umschläge und ihren Fortschritt einsehen"
+      },
+      "budget_dashboard-read": {
+        "label": "Budget-Dashboard",
+        "desc": "Cashflow, Top-Kategorien und anstehende Abos einsehen"
+      },
+      "oauth2_discover": {
+        "label": "OAuth2-Discovery",
+        "desc": "Öffentliche Metadaten des Autorisierungsservers einsehen"
+      },
+      "oauth2_session-status": {
+        "label": "Sitzungsstatus",
+        "desc": "Status und Berechtigungen der aktuellen Sitzung einsehen"
+      },
+      "budget_categories-write": {
+        "label": "Budgetkategorien",
+        "desc": "Budgetkategorien erstellen, bearbeiten und archivieren"
+      },
+      "budget_rules-write": {
+        "label": "Kategorisierungsregeln",
+        "desc": "Kategorisierungsregeln erstellen, bearbeiten und löschen"
+      },
+      "budget_transactions-write": {
+        "label": "Budgetierte Transaktionen",
+        "desc": "Die Kategorie von Transaktionen ändern"
+      },
+      "budget_envelopes-write": {
+        "label": "Budget-Umschläge",
+        "desc": "Budget-Umschläge erstellen, bearbeiten und löschen"
       }
     }
   },

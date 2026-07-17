@@ -1053,6 +1053,54 @@
       "sync_trigger": {
         "label": "Sync",
         "desc": "Refresh existing bank, crypto and broker connections"
+      },
+      "budget_categories-read": {
+        "label": "Budget categories",
+        "desc": "View budget categories (income, expense, transfer)"
+      },
+      "budget_rules-read": {
+        "label": "Categorization rules",
+        "desc": "View automatic transaction categorization rules"
+      },
+      "budget_transactions-read": {
+        "label": "Budgeted transactions",
+        "desc": "View transactions and their category"
+      },
+      "budget_recurring-read": {
+        "label": "Recurring subscriptions",
+        "desc": "View detected subscriptions, direct debits and salaries"
+      },
+      "budget_envelopes-read": {
+        "label": "Budget envelopes",
+        "desc": "View budget envelopes and their progress"
+      },
+      "budget_dashboard-read": {
+        "label": "Budget dashboard",
+        "desc": "View cashflow, top categories and upcoming subscriptions"
+      },
+      "oauth2_discover": {
+        "label": "OAuth2 discovery",
+        "desc": "View the authorization server's public metadata"
+      },
+      "oauth2_session-status": {
+        "label": "Session status",
+        "desc": "View the current session's status and granted permissions"
+      },
+      "budget_categories-write": {
+        "label": "Budget categories",
+        "desc": "Create, edit and archive budget categories"
+      },
+      "budget_rules-write": {
+        "label": "Categorization rules",
+        "desc": "Create, edit and delete categorization rules"
+      },
+      "budget_transactions-write": {
+        "label": "Budgeted transactions",
+        "desc": "Change transactions' category"
+      },
+      "budget_envelopes-write": {
+        "label": "Budget envelopes",
+        "desc": "Create, edit and delete budget envelopes"
       }
     }
   },

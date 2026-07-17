@@ -719,6 +719,54 @@
       "sync_trigger": {
         "label": "Sincronización",
         "desc": "Actualizar las conexiones existentes de bancos, cripto y brókeres"
+      },
+      "budget_categories-read": {
+        "label": "Categorías de presupuesto",
+        "desc": "Ver categorías de presupuesto (ingresos, gastos, transferencias)"
+      },
+      "budget_rules-read": {
+        "label": "Reglas de categorización",
+        "desc": "Ver las reglas de categorización automática de transacciones"
+      },
+      "budget_transactions-read": {
+        "label": "Transacciones presupuestadas",
+        "desc": "Ver transacciones y su categoría"
+      },
+      "budget_recurring-read": {
+        "label": "Suscripciones recurrentes",
+        "desc": "Ver suscripciones, domiciliaciones y nóminas detectadas"
+      },
+      "budget_envelopes-read": {
+        "label": "Sobres de presupuesto",
+        "desc": "Ver los sobres de presupuesto y su progreso"
+      },
+      "budget_dashboard-read": {
+        "label": "Panel de presupuesto",
+        "desc": "Ver el flujo de caja, las principales categorías y las próximas suscripciones"
+      },
+      "oauth2_discover": {
+        "label": "Descubrimiento OAuth2",
+        "desc": "Ver los metadatos públicos del servidor de autorización"
+      },
+      "oauth2_session-status": {
+        "label": "Estado de sesión",
+        "desc": "Ver el estado y los permisos de la sesión actual"
+      },
+      "budget_categories-write": {
+        "label": "Categorías de presupuesto",
+        "desc": "Crear, editar y archivar categorías de presupuesto"
+      },
+      "budget_rules-write": {
+        "label": "Reglas de categorización",
+        "desc": "Crear, editar y eliminar reglas de categorización"
+      },
+      "budget_transactions-write": {
+        "label": "Transacciones presupuestadas",
+        "desc": "Cambiar la categoría de las transacciones"
+      },
+      "budget_envelopes-write": {
+        "label": "Sobres de presupuesto",
+        "desc": "Crear, editar y eliminar sobres de presupuesto"
       }
     }
   },

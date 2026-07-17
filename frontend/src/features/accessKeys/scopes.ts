@@ -12,10 +12,22 @@ export const ALL_SCOPES = [
   'dashboard:read',
   'prices:read',
   'family:read',
+  'budget:categories-read',
+  'budget:rules-read',
+  'budget:transactions-read',
+  'budget:recurring-read',
+  'budget:envelopes-read',
+  'budget:dashboard-read',
+  'oauth2:discover',
+  'oauth2:session-status',
   'accounts:write',
   'transactions:write',
   'goals:write',
   'sync:trigger',
+  'budget:categories-write',
+  'budget:rules-write',
+  'budget:transactions-write',
+  'budget:envelopes-write',
 ] as const
 
 export type Scope = (typeof ALL_SCOPES)[number]
