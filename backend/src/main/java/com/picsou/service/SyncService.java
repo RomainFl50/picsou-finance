@@ -281,10 +281,13 @@ public class SyncService {
         List<Requisition> linked = requisitionRepository.findByStatusAndMemberIdOrderByCreatedAtDesc(RequisitionStatus.LINKED, memberId);
         for (Requisition req : linked) {
             try {
+                Instant logoBackfillAttemptedBefore = req.getLogoBackfillAttemptedAt();
                 ensureLogoUrl(req);
                 // Persist the bounded-attempt marker even when the provider subsequently returns
                 // no accounts and the early-return path below keeps the session retryable.
-                requisitionRepository.save(req);
+                if (logoBackfillAttemptedBefore == null && req.getLogoBackfillAttemptedAt() != null) {
+                    requisitionRepository.save(req);
+                }
                 List<BankConnectorPort.AccountData> accounts = bankConnector.fetchBalances(req.getRequisitionId());
                 if (markRetryableIfEmpty(req, accounts, "resync")) {
                     continue;
