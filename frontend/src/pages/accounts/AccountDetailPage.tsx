@@ -29,8 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Info, Upload } from 'lucide-react'
+import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
 import { formatLocalDate } from '@/lib/utils'
 import { accountTypeLabelKey } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
@@ -108,7 +107,6 @@ export function AccountDetailPage() {
 
   const chartData = (history ?? []).map(s => ({ date: s.date, balance: s.balance }))
   const isLoan = account?.type === 'LOAN'
-  const isPocket = account?.parentAccountId != null
   // A freshly bank-synced livret is typed CHECKING until configured, so also surface the
   // section when it already has a config or the detector flagged it as a savings candidate.
   const savingsSuggestion = Array.isArray(savingsSuggestions)
@@ -298,25 +296,7 @@ export function AccountDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {/* For pocket sub-accounts, label the balance as "alloué" (total
-                inflows only — internal spending is not synced via PSD2). */}
-            {isPocket ? (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <p className="mb-1 flex cursor-help items-center gap-1 text-xs text-muted-foreground">
-                      {t('pockets.allocatedLabel')}
-                      <Info className="size-3" />
-                    </p>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-64 text-center text-xs">
-                    {t('pockets.allocatedTooltip')}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            ) : (
-              <p className="text-xs text-muted-foreground mb-1">{t('accounts.currentBalance')}</p>
-            )}
+            <p className="text-xs text-muted-foreground mb-1">{t('accounts.currentBalance')}</p>
             <CurrencyDisplay
               value={displayBalance}
               className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`}

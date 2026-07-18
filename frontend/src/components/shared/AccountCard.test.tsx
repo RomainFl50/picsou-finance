@@ -79,6 +79,7 @@ const baseAccount: Account = {
   ticker: null,
   logoUrl: null,
   createdAt: '2024-01-01T00:00:00Z',
+  hidden: false,
 }
 
 describe('AccountCard', () => {

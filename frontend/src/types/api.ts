@@ -47,6 +47,8 @@ export interface Account {
    *  Null / absent for regular accounts. */
   externalAccountId?: string | null
   savingsConfig?: SavingsConfig | null
+  /** Display-only visibility flag; hidden account still syncs normally. */
+  hidden: boolean
 }
 
 export interface AccountRequest {

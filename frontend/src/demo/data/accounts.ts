@@ -1,5 +1,4 @@
 import type { Account } from '@/types/api'
-import type { UnnamedPocket, CsvNameSuggestion } from '@/types/pockets'
 
 export const mockAccounts: Account[] = [
   {
@@ -16,6 +15,7 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-01-15T08:00:00Z',
+    hidden: false,
   },
   {
     id: 2,
@@ -31,6 +31,7 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-02-01T08:00:00Z',
+    hidden: false,
   },
   {
     id: 3,
@@ -46,6 +47,7 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-03-10T08:00:00Z',
+    hidden: false,
   },
   {
     id: 4,
@@ -61,6 +63,7 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-01-01T08:00:00Z',
+    hidden: false,
   },
   {
     id: 5,
@@ -76,6 +79,7 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-06-15T08:00:00Z',
+    hidden: false,
   },
   {
     id: 6,
@@ -91,6 +95,7 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-04-01T08:00:00Z',
+    hidden: false,
   },
   {
     id: 7,
@@ -106,6 +111,7 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-01-01T08:00:00Z',
+    hidden: false,
     savingsConfig: {
       product: 'LIVRET_A' as const,
       annualRate: 2.40,
@@ -129,6 +135,7 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-01-01T08:00:00Z',
+    hidden: false,
   },
   {
     id: 9,
@@ -144,12 +151,13 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-01-15T08:00:00Z',
+    hidden: false,
     parentAccountId: 8,
     externalAccountId: '76fe0dd0-c245-4d73-9df4-d4fcda89abfe',
   },
   {
     id: 10,
-    name: 'Pocket ••e1f2',
+    name: 'Impôts',
     type: 'CHECKING',
     provider: 'Revolut',
     currency: 'EUR',
@@ -161,32 +169,8 @@ export const mockAccounts: Account[] = [
     ticker: null,
     logoUrl: null,
     createdAt: '2024-02-01T08:00:00Z',
+    hidden: false,
     parentAccountId: 8,
     externalAccountId: '3874abbf-a1b2-c3d4-e5f6-a7b8c9d0e1f2',
-  },
-]
-
-// ─── Demo unnamed pockets ────────────────────────────────────────────────────
-// Matches the real UnnamedPocketResponse DTO: accountId (no externalAccountId).
-
-export const mockUnnamedPockets: UnnamedPocket[] = [
-  {
-    accountId: 10,
-    placeholderName: 'Pocket ••e1f2',
-    parentAccountId: 8,
-    transfers: [
-      { amount: 200, date: '2026-06-01' },
-      { amount: 100, date: '2026-05-15' },
-    ],
-  },
-]
-
-// Matches CsvNamingResponse { suggestions: CsvNameSuggestion[] }.
-// suggestions use accountId (not uuid) and uncertain (not ambiguous).
-export const mockCsvSuggestions: CsvNameSuggestion[] = [
-  {
-    accountId: 10,
-    suggestedName: 'Épargne Court Terme',
-    uncertain: false,
   },
 ]

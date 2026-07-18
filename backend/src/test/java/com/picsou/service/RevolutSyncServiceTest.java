@@ -330,8 +330,8 @@ class RevolutSyncServiceTest {
     /**
      * remember=false never persists credentials and clears any previously-remembered ones -- but
      * the row itself is kept (not deleted): it doubles as the "sidecar has synced this member"
-     * marker that {@code RevolutPocketService} relies on to stand down its PSD2 heuristic
-     * reconstruction, regardless of whether credentials were remembered.
+     * marker used to show {@code lastSyncedAt} status in {@code RevolutTab.tsx} regardless of
+     * whether credentials were remembered.
      */
     @Test
     void sync_rememberFalse_clearsCredentialsButKeepsSessionMarkerRow() {
@@ -355,11 +355,8 @@ class RevolutSyncServiceTest {
     }
 
     /**
-     * Regression guard for the RevolutPocketService guard fix: even a member who NEVER remembers
-     * credentials must get a RevolutSession row with lastSyncedAt set on their very first sync, or
-     * RevolutPocketService cannot tell "the sidecar connector has synced this member" apart from
-     * "no on-demand connector used at all" and would wrongly keep running its PSD2 heuristic
-     * reconstruction alongside the real synced pockets.
+     * Even a member who NEVER remembers credentials must get a RevolutSession row with
+     * lastSyncedAt set on their very first sync, so RevolutTab can show sync status immediately.
      */
     @Test
     void sync_rememberFalse_firstEverSync_stillCreatesSessionMarkerRow() {

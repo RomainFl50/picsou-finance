@@ -804,6 +804,11 @@
       "noWallets": "No wallets tracked",
       "lastSync": "Last sync"
     },
+    "visibility": {
+      "title": "Accounts",
+      "description": "Choose which accounts appear in app. A hidden account keeps syncing normally — it's just removed from display.",
+      "manualGroup": "Manual"
+    },
     "finary": {
       "title": "Finary",
       "uploadFile": "Import Finary file (.xlsx)",
@@ -1049,6 +1054,54 @@
       "sync_trigger": {
         "label": "Sync",
         "desc": "Refresh existing bank, crypto and broker connections"
+      },
+      "budget_categories-read": {
+        "label": "Budget categories",
+        "desc": "View budget categories (income, expense, transfer)"
+      },
+      "budget_rules-read": {
+        "label": "Categorization rules",
+        "desc": "View automatic transaction categorization rules"
+      },
+      "budget_transactions-read": {
+        "label": "Budgeted transactions",
+        "desc": "View transactions and their category"
+      },
+      "budget_recurring-read": {
+        "label": "Recurring subscriptions",
+        "desc": "View detected subscriptions, direct debits and salaries"
+      },
+      "budget_envelopes-read": {
+        "label": "Budget envelopes",
+        "desc": "View budget envelopes and their progress"
+      },
+      "budget_dashboard-read": {
+        "label": "Budget dashboard",
+        "desc": "View cashflow, top categories and upcoming subscriptions"
+      },
+      "oauth2_discover": {
+        "label": "OAuth2 discovery",
+        "desc": "View the authorization server's public metadata"
+      },
+      "oauth2_session-status": {
+        "label": "Session status",
+        "desc": "View the current session's status and granted permissions"
+      },
+      "budget_categories-write": {
+        "label": "Budget categories",
+        "desc": "Create, edit and archive budget categories"
+      },
+      "budget_rules-write": {
+        "label": "Categorization rules",
+        "desc": "Create, edit and delete categorization rules"
+      },
+      "budget_transactions-write": {
+        "label": "Budgeted transactions",
+        "desc": "Change transactions' category"
+      },
+      "budget_envelopes-write": {
+        "label": "Budget envelopes",
+        "desc": "Create, edit and delete budget envelopes"
       }
     }
   },
@@ -1496,26 +1549,6 @@
     }
   },
   "pockets": {
-    "title": "Revolut pockets",
-    "onboardingTitle": "Name your Revolut pockets",
-    "onboardingDescription": "Revolut pockets have been detected. Give them a name so you can recognise them.",
-    "transfersTitle": "Received transfers",
-    "namePlaceholder": "Pocket name (e.g. Holidays)",
-    "allocatedLabel": "Allocated",
-    "allocatedTooltip": "Total transferred in — not the real balance. Internal pocket spending is not synced via PSD2.",
-    "csvDropzone": "Drop a Revolut CSV export to pre-fill names",
-    "csvDropzoneActive": "Release to analyse",
-    "csvDropzoneHint": "The CSV is used only to suggest names — no spending data is imported.",
-    "csvBrowse": "Browse",
-    "csvError": "Could not parse the CSV. Make sure it is a valid Revolut export.",
-    "csvAmbiguous": "Uncertain suggestion — confirm manually",
-    "csvSuggestedLabel": "CSV suggestion",
-    "saveNames": "Save names",
-    "skipForNow": "Later",
-    "unnamedPocketsBanner": "{{count}} unnamed Revolut pocket detected",
-    "unnamedPocketsBanner_other": "{{count}} unnamed Revolut pockets detected",
-    "nameYourPockets": "Name pockets",
-    "pocketOf": "Pocket of {{walletName}}",
     "subAccountsCount": "{{count}} pocket",
     "subAccountsCount_other": "{{count}} pockets"
   },

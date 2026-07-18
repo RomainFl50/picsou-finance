@@ -64,7 +64,7 @@ class DashboardServiceLiabilityTest {
         debt.setEndDate(LocalDate.of(2037, 1, 1));
         debt.setAccount(loan);
 
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
         when(holdingRepository.findByAccount_Id(10L)).thenReturn(List.of());
         // Loans are valued through AccountService.liveBalanceEur (positive remaining balance).
         when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("80000"));
@@ -97,7 +97,7 @@ class DashboardServiceLiabilityTest {
         loan.setCurrency("EUR");
         loan.setColor("#f97316");
 
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
         when(holdingRepository.findByAccount_Id(11L)).thenReturn(List.of());
         when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("15000"));
         when(debtRepository.findByAccountIdIn(List.of(11L))).thenReturn(List.of());
@@ -128,7 +128,7 @@ class DashboardServiceLiabilityTest {
         debt.setBorrowedAmount(new BigDecimal("5000"));
         // intentionally no startDate / endDate / monthlyPayment
 
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
         when(holdingRepository.findByAccount_Id(12L)).thenReturn(List.of());
         when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("5000"));
         when(debtRepository.findByAccountIdIn(List.of(12L))).thenReturn(List.of(debt));
@@ -168,7 +168,7 @@ class DashboardServiceLiabilityTest {
         pocket.setColor("#6366f1");
         pocket.setParentAccountId(20L);
 
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(wallet, pocket));
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L)).thenReturn(List.of(wallet, pocket));
         when(holdingRepository.findByAccount_Id(20L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(21L)).thenReturn(List.of());
         when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));

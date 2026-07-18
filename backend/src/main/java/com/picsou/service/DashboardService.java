@@ -62,7 +62,7 @@ public class DashboardService {
     }
 
     public DashboardResponse getDashboard(Long memberId, String range) {
-        List<Account> accounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId);
+        List<Account> accounts = accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(memberId);
 
         // Pre-load all holdings and group by account
         Map<Long, List<AccountHolding>> holdingsByAccount = new HashMap<>();

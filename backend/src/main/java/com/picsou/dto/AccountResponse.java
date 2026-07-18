@@ -24,7 +24,8 @@ public record AccountResponse(
     DebtResponse debt,
     SavingsConfigDto savingsConfig,
     /** Non-null only for Revolut pocket sub-accounts; the parent wallet's account id. */
-    Long parentAccountId
+    Long parentAccountId,
+    boolean hidden
 ) {
     public static AccountResponse from(Account a, BigDecimal balanceEur) {
         return new AccountResponse(
@@ -44,25 +45,26 @@ public record AccountResponse(
             null,
             null,
             null,
-            a.getParentAccountId()
+            a.getParentAccountId(),
+            a.isHidden()
         );
     }
 
     public AccountResponse withRealEstate(RealEstateMetadataResponse realEstate) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, lastSyncedAt, isManual, color, ticker, logoUrl, createdAt, realEstate, debt,
-            savingsConfig, parentAccountId);
+            savingsConfig, parentAccountId, hidden);
     }
 
     public AccountResponse withDebt(DebtResponse debt) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, lastSyncedAt, isManual, color, ticker, logoUrl, createdAt, realEstate, debt,
-            savingsConfig, parentAccountId);
+            savingsConfig, parentAccountId, hidden);
     }
 
     public AccountResponse withSavingsConfig(SavingsConfigDto savingsConfig) {
         return new AccountResponse(id, name, type, provider, currency, currentBalance,
             currentBalanceEur, lastSyncedAt, isManual, color, ticker, logoUrl, createdAt, realEstate, debt,
-            savingsConfig, parentAccountId);
+            savingsConfig, parentAccountId, hidden);
     }
 }

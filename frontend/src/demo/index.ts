@@ -1,6 +1,6 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import type { GoalProgress } from '@/types/api'
-import { mockAccounts, mockUnnamedPockets, mockCsvSuggestions } from './data/accounts'
+import { mockAccounts } from './data/accounts'
 import { mockDashboard } from './data/dashboard'
 import { mockGoals } from './data/goals'
 import { mockHoldings } from './data/holdings'
@@ -32,11 +32,10 @@ type MockHandler = (config: InternalAxiosRequestConfig) => unknown
 const handlers = new Map<string, MockHandler>()
 
 // Mutable demo state for the pocket rename flow (resets on page reload).
-// Both are `let` so PUT handlers can reassign to a NEW array reference —
-// TanStack Query uses referential equality first (replaceEqualDeep) and will
-// not update React state if the same reference is returned after a mutation.
+// `let` so PUT handlers can reassign to a NEW array reference — TanStack Query
+// uses referential equality first (replaceEqualDeep) and will not update React
+// state if the same reference is returned after a mutation.
 let _demoAccounts = mockAccounts.map(a => ({ ...a }))
-let _demoUnnamedPockets = mockUnnamedPockets.slice()
 
 function key(method: string, url: string): string {
   const normalized = url.split('?')[0].replace(/\/$/, '')
@@ -155,33 +154,19 @@ for (let i = 1; i <= 10; i++) {
   handlers.set(key('GET', `/accounts/${i}/transactions`), () => mockTransactions[i] ?? [])
 }
 
-// Revolut pockets — unnamed list
-// Backend: GET /api/revolut-pockets/unnamed → UnnamedPocketResponse[]
-// Uses mutable state so a rename during the session removes the pocket from the list.
-handlers.set(key('GET', '/revolut-pockets/unnamed'), () => _demoUnnamedPockets)
-
-// Revolut pockets — CSV name suggestions (wrapped in CsvNamingResponse envelope)
-// Backend: POST /api/revolut-pockets/csv-naming → { suggestions: CsvNameSuggestion[] }
-handlers.set(key('POST', '/revolut-pockets/csv-naming'), () => ({
-  suggestions: mockCsvSuggestions,
-}))
-
 // Pocket rename (accounts 9 and 10) — re-uses the standard PUT /accounts/:id shape.
 // Reassigns _demoAccounts to a NEW array so TanStack Query detects the change
 // (replaceEqualDeep bails early on same-reference without inspecting contents).
-// Removes the pocket from _demoUnnamedPockets so the onboarding banner disappears.
 handlers.set(key('PUT', '/accounts/9'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const updated = { ..._demoAccounts[8], ...body }
   _demoAccounts = _demoAccounts.map((a, i) => i === 8 ? updated : a)
-  if (body.name) _demoUnnamedPockets = _demoUnnamedPockets.filter(p => p.accountId !== 9)
   return updated
 })
 handlers.set(key('PUT', '/accounts/10'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const updated = { ..._demoAccounts[9], ...body }
   _demoAccounts = _demoAccounts.map((a, i) => i === 9 ? updated : a)
-  if (body.name) _demoUnnamedPockets = _demoUnnamedPockets.filter(p => p.accountId !== 10)
   return updated
 })
 

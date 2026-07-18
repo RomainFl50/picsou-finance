@@ -11,6 +11,7 @@ import java.util.Optional;
 
 public interface AccountRepository extends JpaRepository<Account, Long> {
     List<Account> findAllByMemberIdOrderByCreatedAtAsc(Long memberId);
+    List<Account> findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(Long memberId);
     Optional<Account> findByIdAndMemberId(Long id, Long memberId);
 
     /**
@@ -71,55 +72,14 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     List<Account> findRevolutWalletsByMemberId(@Param("memberId") Long memberId);
 
     /**
-     * Find an existing Revolut pocket sub-account by its stable uuid (external_account_id)
-     * and parent wallet id. Used for idempotent find-or-create.
+     * Finary-created accounts eligible for account-level logo backfill. Positively identifying
+     * their external-id namespace avoids expensive, pointless catalog searches for accounts
+     * owned by other connectors or by an Enable Banking requisition.
      */
-    @Query("""
-        SELECT a FROM Account a
-        WHERE a.member.id = :memberId
-        AND a.parentAccountId = :parentAccountId
-        AND a.externalAccountId = :pocketUuid
-        """)
-    java.util.Optional<Account> findPocketByParentAndUuid(
-        @Param("memberId") Long memberId,
-        @Param("parentAccountId") Long parentAccountId,
-        @Param("pocketUuid") String pocketUuid
+    List<Account> findByMemberIdAndExternalAccountIdStartingWithAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNull(
+        Long memberId,
+        String externalAccountIdPrefix
     );
-
-    /**
-     * Returns true if a soft-deleted pocket sub-account exists for this parent + uuid.
-     * Bypasses {@code @SQLRestriction("deleted_at IS NULL")} on Account.
-     * Used by pocket reconstruction to refuse resurrecting pockets the user explicitly removed.
-     */
-    @Query(value =
-        "SELECT EXISTS(SELECT 1 FROM account " +
-        "  WHERE member_id = :memberId AND parent_account_id = :parentAccountId " +
-        "  AND external_account_id = :pocketUuid AND deleted_at IS NOT NULL)",
-        nativeQuery = true)
-    boolean existsSoftDeletedPocketByParentAndUuid(
-        @Param("memberId") Long memberId,
-        @Param("parentAccountId") Long parentAccountId,
-        @Param("pocketUuid") String pocketUuid
-    );
-
-    /**
-     * All pocket sub-accounts for a member: parent_account_id IS NOT NULL.
-     */
-    @Query("""
-        SELECT a FROM Account a
-        WHERE a.member.id = :memberId AND a.parentAccountId IS NOT NULL
-        ORDER BY a.parentAccountId ASC, a.id ASC
-        """)
-    List<Account> findAllPocketsByMemberId(@Param("memberId") Long memberId);
-
-    /**
-     * Candidates for the account-level logo backfill: a known provider name, no logo yet,
-     * no backfill attempt yet, and not a pocket sub-account (pockets never show a logo --
-     * see docs/features/bank-logos.md). Covers accounts synced outside the Enable Banking
-     * connection flow (Finary import, other sidecars) that have no Requisition to backfill
-     * a logo onto instead.
-     */
-    List<Account> findByMemberIdAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNullAndParentAccountIdIsNull(Long memberId);
 
     /**
      * Lifts soft-delete tombstones for all Trade Republic accounts of a member.

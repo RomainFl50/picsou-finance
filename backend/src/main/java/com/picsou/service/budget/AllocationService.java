@@ -81,7 +81,7 @@ public class AllocationService {
 
     private List<AllocationStock> buildStock(Long memberId) {
         Map<AssetClass, BigDecimal> byClass = new EnumMap<>(AssetClass.class);
-        for (Account account : accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId)) {
+        for (Account account : accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(memberId)) {
             AssetClass assetClass = AssetClass.of(account.getType());
             if (assetClass == AssetClass.OTHER) {
                 continue; // not part of cash allocation

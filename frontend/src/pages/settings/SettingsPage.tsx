@@ -264,8 +264,8 @@ export function SettingsPage() {
             </Label>
             <Switch
               id="show-bank-logos"
-              checked={displaySettings?.showBankLogos ?? true}
-              disabled={updateDisplaySettings.isPending}
+              checked={displaySettings?.showBankLogos ?? false}
+              disabled={!displaySettings || updateDisplaySettings.isPending}
               onCheckedChange={(checked) => updateDisplaySettings.mutate({ showBankLogos: checked })}
             />
           </div>

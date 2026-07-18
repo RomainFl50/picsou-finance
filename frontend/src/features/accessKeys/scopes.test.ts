@@ -21,8 +21,38 @@ describe('scopeGroup', () => {
     }
   })
 
+  it('classifies every budget -read scope as read', () => {
+    for (const s of [
+      'budget:categories-read',
+      'budget:rules-read',
+      'budget:transactions-read',
+      'budget:recurring-read',
+      'budget:envelopes-read',
+      'budget:dashboard-read',
+    ]) {
+      expect(scopeGroup(s)).toBe('read')
+    }
+  })
+
+  it('classifies the oauth2 introspection scopes as read', () => {
+    for (const s of ['oauth2:discover', 'oauth2:session-status']) {
+      expect(scopeGroup(s)).toBe('read')
+    }
+  })
+
   it('classifies :write and :trigger scopes as write', () => {
     for (const s of ['accounts:write', 'transactions:write', 'goals:write', 'sync:trigger']) {
+      expect(scopeGroup(s)).toBe('write')
+    }
+  })
+
+  it('classifies budget -write scopes as write', () => {
+    for (const s of [
+      'budget:categories-write',
+      'budget:rules-write',
+      'budget:transactions-write',
+      'budget:envelopes-write',
+    ]) {
       expect(scopeGroup(s)).toBe('write')
     }
   })
@@ -47,10 +77,22 @@ describe('scope vocabulary', () => {
         'dashboard:read',
         'prices:read',
         'family:read',
+        'budget:categories-read',
+        'budget:rules-read',
+        'budget:transactions-read',
+        'budget:recurring-read',
+        'budget:envelopes-read',
+        'budget:dashboard-read',
+        'oauth2:discover',
+        'oauth2:session-status',
         'accounts:write',
         'transactions:write',
         'goals:write',
         'sync:trigger',
+        'budget:categories-write',
+        'budget:rules-write',
+        'budget:transactions-write',
+        'budget:envelopes-write',
       ].sort(),
     )
   })
@@ -58,5 +100,41 @@ describe('scope vocabulary', () => {
   it('partitions ALL_SCOPES into read and write with no overlap or omission', () => {
     expect([...READ_SCOPES, ...WRITE_SCOPES].sort()).toEqual([...ALL_SCOPES].sort())
     expect(READ_SCOPES.some((s) => WRITE_SCOPES.includes(s))).toBe(false)
+  })
+
+  // Guards the semantic split, not just the count: a scope landing in the wrong bucket
+  // (e.g. a read scope classified as write) would pass the partition test above but is
+  // exactly the bug this test would have caught.
+  it('puts each scope in the correct bucket, not just a bucket', () => {
+    expect([...READ_SCOPES].sort()).toEqual(
+      [
+        'accounts:read',
+        'transactions:read',
+        'goals:read',
+        'dashboard:read',
+        'prices:read',
+        'family:read',
+        'budget:categories-read',
+        'budget:rules-read',
+        'budget:transactions-read',
+        'budget:recurring-read',
+        'budget:envelopes-read',
+        'budget:dashboard-read',
+        'oauth2:discover',
+        'oauth2:session-status',
+      ].sort(),
+    )
+    expect([...WRITE_SCOPES].sort()).toEqual(
+      [
+        'accounts:write',
+        'transactions:write',
+        'goals:write',
+        'sync:trigger',
+        'budget:categories-write',
+        'budget:rules-write',
+        'budget:transactions-write',
+        'budget:envelopes-write',
+      ].sort(),
+    )
   })
 })

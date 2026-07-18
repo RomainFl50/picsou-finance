@@ -46,7 +46,7 @@ class DashboardServiceTest {
             .averageBuyIn(new BigDecimal("100"))
             .currentPrice(new BigDecimal("999"))
             .build();
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(account));
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(account));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(holding));
         when(priceService.getPriceEur("PHYMF")).thenReturn(null);
         when(historyService.buildHistory(List.of(1L), 12, 42L)).thenReturn(List.of());
@@ -69,7 +69,7 @@ class DashboardServiceTest {
             .averageBuyIn(new BigDecimal("100"))
             .currentPrice(new BigDecimal("999"))
             .build();
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(account));
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(account));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(holding));
         when(priceService.getPriceEur("AAPL")).thenReturn(new BigDecimal("200"));
         when(historyService.buildHistory(List.of(1L), 12, 42L)).thenReturn(List.of());
@@ -128,7 +128,7 @@ class DashboardServiceTest {
             .color("#22c55e")
             .build();
         Account loanAcc = loanAccount();               // id 10, LOAN 10000
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L))
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L))
             .thenReturn(List.of(cashAcc, savingsAcc, loanAcc));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
@@ -153,7 +153,7 @@ class DashboardServiceTest {
     void getDashboard_loanValuation_usesAmortizedLiveBalance_notStoredBalance() {
         Account loanAcc = loanAccount();               // stored balance 10000
         Account cashAcc = cashAccount();
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(loanAcc, cashAcc));
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(loanAcc, cashAcc));
         when(holdingRepository.findByAccount_Id(10L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
         // Amortization has progressed: remaining capital 9500 < stored 10000.
@@ -174,7 +174,7 @@ class DashboardServiceTest {
     @Test
     void getDashboard_rangeSwitch_mapsMonths() {
         Account cashAcc = cashAccount();
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(cashAcc));
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(cashAcc));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
         when(priceService.toEur(new BigDecimal("2000"), "EUR", null)).thenReturn(new BigDecimal("2000"));
         when(historyService.buildHistory(List.of(1L), 3, 42L)).thenReturn(List.of());
@@ -190,7 +190,7 @@ class DashboardServiceTest {
     private void stubLoanAndCashFixture() {
         Account loanAcc = loanAccount();
         Account cashAcc = cashAccount();
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(loanAcc, cashAcc));
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(loanAcc, cashAcc));
         when(holdingRepository.findByAccount_Id(10L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
         // Loans are valued through AccountService.liveBalanceEur (amortized when a Debt

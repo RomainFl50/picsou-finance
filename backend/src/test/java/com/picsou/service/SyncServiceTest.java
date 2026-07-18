@@ -43,7 +43,6 @@ class SyncServiceTest {
     @Mock TransactionRepository transactionRepository;
     @Mock CategorizationService categorizationService;
     @Mock RecurringDetectionService recurringDetectionService;
-    @Mock RevolutPocketService revolutPocketService;
 
     @InjectMocks SyncService syncService;
 
@@ -110,7 +109,7 @@ class SyncServiceTest {
         lenient().when(accountService.toResponse(any(Account.class)))
             .thenReturn(new AccountResponse(99L, "Compte Courant", null, "BNP Paribas", "EUR",
                 new BigDecimal("100"), new BigDecimal("100"), null, false, "#6366f1", null,
-                "https://logos.example/bnp.png", null, null, null, null, null));
+                "https://logos.example/bnp.png", null, null, null, null, null, false));
         // Merged in from 1.1.0: completeConnection now ingests transactions per account.
         when(bankConnector.fetchTransactions(any(), any(), any())).thenReturn(List.of());
 
@@ -258,7 +257,7 @@ class SyncServiceTest {
             .build();
 
         when(accountRepository
-            .findByMemberIdAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNullAndParentAccountIdIsNull(memberId))
+            .findByMemberIdAndExternalAccountIdStartingWithAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNull(memberId, "finary_"))
             .thenReturn(List.of(account));
 
         InstitutionData match = new InstitutionData("BOURSORAMA_BANQUE::FR", "Boursorama Banque", "BOUSFRPP",
@@ -280,7 +279,7 @@ class SyncServiceTest {
         // The repository query itself excludes accounts with a non-null logoBackfillAttemptedAt,
         // so an already-attempted account is simply never returned as a candidate.
         when(accountRepository
-            .findByMemberIdAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNullAndParentAccountIdIsNull(memberId))
+            .findByMemberIdAndExternalAccountIdStartingWithAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNull(memberId, "finary_"))
             .thenReturn(List.of());
 
         syncService.backfillAccountLogosByProvider(memberId);
@@ -301,7 +300,7 @@ class SyncServiceTest {
             .id(71L).member(member).name("Account").provider("Boursorama Banque").logoUrl(null).isManual(false).build();
 
         when(accountRepository
-            .findByMemberIdAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNullAndParentAccountIdIsNull(memberId))
+            .findByMemberIdAndExternalAccountIdStartingWithAndProviderIsNotNullAndLogoUrlIsNullAndLogoBackfillAttemptedAtIsNull(memberId, "finary_"))
             .thenReturn(List.of(broken, healthy));
 
         when(bankConnector.searchInstitutions("Unknown Bank", null))

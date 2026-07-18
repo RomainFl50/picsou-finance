@@ -72,9 +72,19 @@ public class AccountService {
     }
 
     public List<AccountResponse> findAll(Long memberId) {
-        return accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
-            .map(this::toResponse)
-            .toList();
+        return findAll(memberId, false);
+    }
+
+    /**
+     * @param includeHidden false (default) excludes hidden accounts, matching every other
+     *                       user-facing account list. true is used only by the /sync visibility
+     *                       tab, which must be able to see (and re-show) hidden accounts.
+     */
+    public List<AccountResponse> findAll(Long memberId, boolean includeHidden) {
+        List<Account> accounts = includeHidden
+            ? accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId)
+            : accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(memberId);
+        return accounts.stream().map(this::toResponse).toList();
     }
 
     public AccountResponse findById(Long id, Long memberId) {
@@ -139,6 +149,13 @@ public class AccountService {
         }
 
         return response;
+    }
+
+    @Transactional
+    public AccountResponse setHidden(Long id, Long memberId, boolean hidden) {
+        Account account = getOrThrow(id, memberId);
+        account.setHidden(hidden);
+        return toResponse(accountRepository.save(account));
     }
 
     @Transactional

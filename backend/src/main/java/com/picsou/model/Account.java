@@ -93,4 +93,8 @@ public class Account extends AuditableEntity {
      */
     @Column(name = "parent_account_id")
     private Long parentAccountId;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean hidden = false;
 }

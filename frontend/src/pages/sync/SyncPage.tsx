@@ -8,6 +8,7 @@ import { CryptoWalletTab } from './CryptoWalletTab'
 import { TradeRepublicTab } from './TradeRepublicTab'
 import { RevolutTab } from './RevolutTab'
 import { FinaryTab } from './FinaryTab'
+import { AccountsVisibilityTab } from './AccountsVisibilityTab'
 // BoursoTab hidden for 1.0.0 — sidecar integration not finished.
 
 export function SyncPage() {
@@ -26,6 +27,7 @@ export function SyncPage() {
           <TabsTrigger value="tr">{t('sync.tr.title')}</TabsTrigger>
           <TabsTrigger value="revolut">{t('sync.revolut.title')}</TabsTrigger>
           <TabsTrigger value="finary">{t('sync.finary.title')}</TabsTrigger>
+          <TabsTrigger value="visibility">{t('sync.visibility.title')}</TabsTrigger>
         </TabsList>
         <TabsContent value="banks" className="mt-6">
           <BankSyncTab />
@@ -44,6 +46,9 @@ export function SyncPage() {
         </TabsContent>
         <TabsContent value="finary" className="mt-6">
           <FinaryTab />
+        </TabsContent>
+        <TabsContent value="visibility" className="mt-6">
+          <AccountsVisibilityTab />
         </TabsContent>
       </Tabs>
     </div>

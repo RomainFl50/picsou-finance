@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi } from './api'
 import type { AccountRequest, Account, DebtRequest, HoldingResponse, RealEstateMetadataRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
@@ -137,6 +138,43 @@ export function useAccounts() {
     queryFn: accountsApi.list,
     staleTime: QUERY_STALE_TIMES.accounts,
   })
+}
+
+export interface AccountTree {
+  walletGroups: Array<{ wallet: Account; pockets: Account[] }>
+  standaloneAccounts: Account[]
+  nonPocketAccounts: Account[]
+}
+
+/**
+ * Groups a flat account list into wallet -> pockets, matching Account.parentAccountId.
+ * A pocket whose parent isn't present in `accounts` (e.g. the wallet was soft-deleted)
+ * falls back into nonPocketAccounts/standaloneAccounts instead of silently vanishing.
+ */
+export function useAccountTree(accounts: Account[] | undefined): AccountTree {
+  return useMemo(() => {
+    const accountIds = new Set((accounts ?? []).map((a) => a.id))
+
+    const pocketsByParent = new Map<number, Account[]>()
+    for (const a of (accounts ?? [])) {
+      if (a.parentAccountId != null && accountIds.has(a.parentAccountId)) {
+        if (!pocketsByParent.has(a.parentAccountId)) pocketsByParent.set(a.parentAccountId, [])
+        pocketsByParent.get(a.parentAccountId)!.push(a)
+      }
+    }
+
+    const nonPocketAccounts = (accounts ?? []).filter(
+      (a) => a.parentAccountId == null || !accountIds.has(a.parentAccountId),
+    )
+
+    const walletGroups = nonPocketAccounts
+      .filter((a) => pocketsByParent.has(a.id))
+      .map((wallet) => ({ wallet, pockets: pocketsByParent.get(wallet.id)! }))
+
+    const standaloneAccounts = nonPocketAccounts.filter((a) => !pocketsByParent.has(a.id))
+
+    return { walletGroups, standaloneAccounts, nonPocketAccounts }
+  }, [accounts])
 }
 
 export function useAccount(id: number) {
@@ -432,5 +470,25 @@ export function usePriceHistory(ticker: string | null, months: number, range: st
     },
     enabled: !!ticker,
     staleTime: 2 * 60 * 1000,
+  })
+}
+
+export function useAllAccounts() {
+  return useQuery({
+    queryKey: ['accounts', 'all'],
+    queryFn: accountsApi.listAll,
+    staleTime: QUERY_STALE_TIMES.accounts,
+  })
+}
+
+export function useToggleAccountVisibility() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, hidden }: { id: number; hidden: boolean }) => accountsApi.setVisibility(id, hidden),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['history'] })
+    },
   })
 }

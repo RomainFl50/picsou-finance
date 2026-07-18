@@ -46,9 +46,9 @@ import java.util.stream.Collectors;
  * session when possible, or performs an automated login with mobile push approval), then upserts
  * the harvested accounts. Java holds no standing browser session -- the durable state is a single
  * {@link RevolutSession} row per member, always upserted (with a fresh {@code lastSyncedAt}) after
- * every successful sync, doubling as "the sidecar has synced this member" marker for
- * {@code RevolutPocketService}. It only carries encrypted credentials when the member explicitly
- * opted in (see {@code remember} below); otherwise it is bookkeeping only.
+ * every successful sync, doubling as "the sidecar has synced this member" marker for downstream
+ * consumers. It only carries encrypted credentials when the member explicitly opted in (see
+ * {@code remember} below); otherwise it is bookkeeping only.
  *
  * <p>Revolut is the <b>primary</b> source for Revolut assets; Enable Banking stays connected as a
  * <b>fallback</b> for the current account (dedup by IBAN in {@link #upsertAccount}, mirroring
@@ -407,12 +407,12 @@ public class RevolutSyncService {
     /**
      * Applies the post-sync session state. The row is ALWAYS upserted with a fresh
      * {@code lastSyncedAt} after a successful sync, regardless of {@code remember} -- this is
-     * what lets {@link RevolutPocketService} tell "the on-demand sidecar connector already
-     * produced real pockets for this member" apart from "this member merely has some
-     * provider='Revolut' accounts" (which can also come from Enable Banking alone). When
-     * {@code remember} is true the encrypted credentials are stored/updated for unattended daily
-     * resync; when false, any previously-remembered credentials are cleared, but the row itself
-     * (and its {@code lastSyncedAt} marker) stays.
+     * what lets downstream consumers tell "the on-demand sidecar connector already produced real
+     * pockets for this member" apart from "this member merely has some provider='Revolut'
+     * accounts" (which can also come from Enable Banking alone). When {@code remember} is true
+     * the encrypted credentials are stored/updated for unattended daily resync; when false, any
+     * previously-remembered credentials are cleared, but the row itself (and its
+     * {@code lastSyncedAt} marker) stays.
      */
     private void applyPostSyncSessionState(Long memberId, String phone, String passcode, boolean remember) {
         RevolutSession session = sessionRepository.findByMemberId(memberId)

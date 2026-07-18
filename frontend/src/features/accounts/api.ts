@@ -61,4 +61,7 @@ export const accountsApi = {
     api.post<TransactionImportResultResponse>(`/accounts/${id}/transactions/import`, data).then(r => r.data),
   realizedPnl: (id: number) =>
     api.get<RealizedPnlResponse>(`/accounts/${id}/realized-pnl`).then(r => r.data),
+  listAll: () => api.get<Account[]>('/accounts', { params: { includeHidden: true } }).then(r => r.data),
+  setVisibility: (id: number, hidden: boolean) =>
+    api.put<Account>(`/accounts/${id}/visibility`, { hidden }).then(r => r.data),
 }

@@ -65,7 +65,7 @@ public class SavingsService {
      * </ul>
      */
     public List<SavingsSuggestionResponse> getSuggestions(Long memberId) {
-        return accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId).stream()
+        return accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(memberId).stream()
             .filter(a -> !a.isManual())
             .filter(a -> savingsConfigRepository.findByAccountId(a.getId()).isEmpty())
             .flatMap(a -> savingsBookDetector.suggest(a.getName())

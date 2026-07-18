@@ -97,12 +97,6 @@ public class SchedulerService {
                 log.error("Daily retry of FAILED Enable Banking sessions failed for member {}", memberId, ex);
             }
 
-            try {
-                syncService.backfillAccountLogosByProvider(memberId);
-            } catch (Exception ex) {
-                log.error("Daily account logo backfill failed for member {}", memberId, ex);
-            }
-
             trSyncService.resyncIfSessionActive(memberId);
             boursoSyncService.resyncIfSessionActive(memberId);
 
@@ -129,6 +123,14 @@ public class SchedulerService {
                 }
             } catch (Exception ex) {
                 log.error("Daily Finary auto-sync failed for member {}", memberId, ex);
+            }
+
+            // Run after all account producers, especially Finary, so accounts created by this
+            // daily cycle are eligible immediately rather than waiting until the next day.
+            try {
+                syncService.backfillAccountLogosByProvider(memberId);
+            } catch (Exception ex) {
+                log.error("Daily account logo backfill failed for member {}", memberId, ex);
             }
         }
     }

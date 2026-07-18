@@ -16,6 +16,7 @@ import java.util.List;
 public class EnableBankingCallLogger {
 
     private static final int MAX_ENTRIES = 200;
+    private static final int MAX_RESPONSE_BODY_CHARS = 64 * 1024;
 
     public record CallEntry(
         Instant timestamp,
@@ -33,7 +34,10 @@ public class EnableBankingCallLogger {
         if (buffer.size() >= MAX_ENTRIES) {
             buffer.pollFirst();
         }
-        buffer.addLast(new CallEntry(Instant.now(), method, url, requestBody, responseStatus, responseBody));
+        String boundedResponseBody = responseBody != null && responseBody.length() > MAX_RESPONSE_BODY_CHARS
+            ? responseBody.substring(0, MAX_RESPONSE_BODY_CHARS) + "\n...[truncated]"
+            : responseBody;
+        buffer.addLast(new CallEntry(Instant.now(), method, url, requestBody, responseStatus, boundedResponseBody));
     }
 
     /** Returns entries newest-first. */

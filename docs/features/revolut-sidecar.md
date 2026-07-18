@@ -164,14 +164,16 @@ Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synch
 - `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
 - Live end-to-end (login + harvest against a real account) is still pending the account cool-down.
-- Note: 6 tests are red independently of this feature (`CashflowFlowServiceTest` ×3,
-  `RevolutPocketServiceTest` ×2, `SyncServicePocketTest` ×1 — pre-existing `refreshPocketBalance`
-  save-count / budget NPE issues; verified via `git stash`).
+- Note: 3 tests are red independently of this feature (`CashflowFlowServiceTest` ×3 — pre-existing
+  budget NPE issues; verified via `git stash`). `RevolutPocketServiceTest` and
+  `SyncServicePocketTest` no longer exist — the PSD2 pocket-guess reconstruction they covered was
+  removed on 2026-07-14 (see [Links](#links) below).
 
 ## Links
 
 - Precedent ADR: [tr-auth slim sidecar](../decisions/2026-04-25-tr-auth-sidecar-slim-image.md)
 - Related: [Bank Sync](./bank-sync.md), [Trade Republic](./trade-republic.md),
   [Encryption at rest](./encryption-at-rest.md), [Budget](./budget.md)
-- Partly supersedes: [Revolut pockets reconstruction](../decisions/2026-06-28-revolut-pockets-reconstruction.md)
-  (stands down once the sidecar has synced)
+- Supersedes: [Revolut pockets reconstruction](../decisions/2026-06-28-revolut-pockets-reconstruction.md)
+  — the PSD2 heuristic reconstruction was fully removed on 2026-07-14, this connector is now the
+  only source of pocket data

@@ -2,6 +2,7 @@ package com.picsou.controller;
 
 import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
+import com.picsou.dto.AccountVisibilityRequest;
 import com.picsou.dto.DebtRequest;
 import com.picsou.dto.DebtResponse;
 import com.picsou.dto.HoldingRequest;
@@ -46,8 +47,8 @@ public class AccountController {
     }
 
     @GetMapping
-    public List<AccountResponse> findAll() {
-        return accountService.findAll(userContext.currentMemberId());
+    public List<AccountResponse> findAll(@RequestParam(defaultValue = "false") boolean includeHidden) {
+        return accountService.findAll(userContext.currentMemberId(), includeHidden);
     }
 
     @GetMapping("/{id}")
@@ -64,6 +65,11 @@ public class AccountController {
     @PutMapping("/{id}")
     public AccountResponse update(@PathVariable Long id, @Valid @RequestBody AccountRequest req) {
         return accountService.update(id, req, userContext.currentMemberId());
+    }
+
+    @PutMapping("/{id}/visibility")
+    public AccountResponse updateVisibility(@PathVariable Long id, @Valid @RequestBody AccountVisibilityRequest req) {
+        return accountService.setHidden(id, userContext.currentMemberId(), req.hidden());
     }
 
     @DeleteMapping("/{id}")

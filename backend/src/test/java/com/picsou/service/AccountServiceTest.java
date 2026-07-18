@@ -1,5 +1,6 @@
 package com.picsou.service;
 
+import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtRequest;
 import com.picsou.dto.HoldingResponse;
 import com.picsou.exception.ResourceNotFoundException;
@@ -55,6 +56,54 @@ class AccountServiceTest {
             .type(AccountType.COMPTE_TITRES)
             .currency("EUR")
             .build();
+    }
+
+    @Test
+    void findAll_excludesHiddenAccounts_byDefault() {
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L))
+            .thenReturn(List.of(ownedAccount()));
+
+        List<com.picsou.dto.AccountResponse> result = accountService.findAll(1L);
+
+        assertThat(result).hasSize(1);
+        verify(accountRepository).findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L);
+        verify(accountRepository, never()).findAllByMemberIdOrderByCreatedAtAsc(any());
+    }
+
+    @Test
+    void findAll_includesHiddenAccounts_whenRequested() {
+        Account hidden = Account.builder()
+            .id(2L).name("Hidden One").type(AccountType.CHECKING).currency("EUR").hidden(true)
+            .build();
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L))
+            .thenReturn(List.of(ownedAccount(), hidden));
+
+        List<com.picsou.dto.AccountResponse> result = accountService.findAll(1L, true);
+
+        assertThat(result).hasSize(2);
+        assertThat(result).anyMatch(com.picsou.dto.AccountResponse::hidden);
+        verify(accountRepository, never()).findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(any());
+    }
+
+    @Test
+    void setHidden_persistsFlag_forOwnedAccount() {
+        Account account = ownedAccount();
+        when(accountRepository.findByIdAndMemberId(1L, 1L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(account)).thenReturn(account);
+
+        AccountResponse response = accountService.setHidden(1L, 1L, true);
+
+        assertThat(account.isHidden()).isTrue();
+        assertThat(response.hidden()).isTrue();
+        verify(accountRepository).save(account);
+    }
+
+    @Test
+    void setHidden_throws_whenAccountNotOwnedByMember() {
+        when(accountRepository.findByIdAndMemberId(1L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> accountService.setHidden(1L, 1L, true))
+            .isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test

@@ -23,6 +23,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -58,7 +60,7 @@ class AllocationServiceTest {
     @Test
     void compute_stockGroupsByAssetClass_excludesOther() {
         when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of(
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of(
             account(1L, "Compte courant", AccountType.CHECKING, "1000.00"),
             account(2L, "Livret A", AccountType.SAVINGS, "5000.00"),
             account(3L, "LEP", AccountType.LEP, "2000.00"),
@@ -81,10 +83,25 @@ class AllocationServiceTest {
     }
 
     @Test
+    void compute_queriesHiddenExcludingRepositoryMethod() {
+        when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of(
+            account(1L, "Compte courant", AccountType.CHECKING, "1000.00")
+        ));
+        when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
+            .thenReturn(List.of());
+
+        service.compute(MEMBER_ID, CashflowPeriod.CYCLE, TODAY);
+
+        verify(accountRepository).findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID);
+        verify(accountRepository, never()).findAllByMemberIdOrderByCreatedAtAsc(any());
+    }
+
+    @Test
     void compute_cycle_withPastAnchor_returnsPastCycleRange() {
         LocalDate anchor = LocalDate.of(2024, 3, 10);
         when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of());
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of());
         when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
             .thenReturn(List.of());
 
@@ -98,7 +115,7 @@ class AllocationServiceTest {
     void compute_ytd_withPastYearEnd_returnsFullPastYear() {
         LocalDate anchor = LocalDate.of(2024, 12, 31);
         when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of());
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of());
         when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
             .thenReturn(List.of());
 
@@ -112,7 +129,7 @@ class AllocationServiceTest {
     void compute_ytd_withCurrentYearAnchor_returnsFromJan1ToAnchor() {
         LocalDate anchor = LocalDate.of(2026, 6, 15);
         when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of());
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID)).thenReturn(List.of());
         when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
             .thenReturn(List.of());
 
@@ -130,7 +147,7 @@ class AllocationServiceTest {
         Account pocket = account(10L, "Pocket ••89abfe", AccountType.CHECKING, "666.00");
 
         when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID))
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
             .thenReturn(List.of(wallet, pocket));
         when(transactionRepository.findByMemberIdAndKindAndDateBetween(
                 eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
@@ -152,7 +169,7 @@ class AllocationServiceTest {
         Account checking = account(1L, "Compte courant", AccountType.CHECKING, "1000.00");
 
         when(budgetSettingsService.cycleStartDay(MEMBER_ID)).thenReturn(1);
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(MEMBER_ID))
+        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(MEMBER_ID))
             .thenReturn(List.of(checking, livret, pea));
         when(transactionRepository.findByMemberIdAndKindAndDateBetween(eq(MEMBER_ID), eq(CategoryKind.TRANSFER), any(), any()))
             .thenReturn(List.of(
