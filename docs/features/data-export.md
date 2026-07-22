@@ -156,22 +156,22 @@ Never serialized in any form:
 
 The export scope is **the data tied to the AppUser making the call**. If an admin is currently "managing" another member via `?memberId=X`, the export endpoint **ignores** that managed-profile context and always exports the AppUser's own perimeter (their `FamilyMember`, accounts they own, goals/debts/etc. they own, plus `SharedResource` rows where they are the recipient). This prevents a "switch profile then export" detour that would violate the self-only scope.
 
-## Key files (planned)
+## Key files
 
 Backend:
 
 - `controller/MeExportController.java` — REST endpoint at `/api/me/export`, re-auth gate, rate limit, audit log
-- `service/DataExportService.java` — orchestrator: opens ZIP, drives all exporters
+- `export/DataExportService.java` — orchestrator: opens ZIP, drives all exporters
 - `service/ReAuthService.java` — verifies password OR TOTP based on `user.mfaEnabled` (reusable for future sensitive operations)
-- `service/export/EntityExporter.java` — interface: `void writeJson(JsonGenerator g)` + `void writeCsv(Writer w)` + `String csvFileName()` + `String jsonKey()`
-- `service/export/{Profile,FamilyMembers,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots}Exporter.java` — one per entity root
+- `export/EntityExporter.java` — interface: `void writeJson(JsonGenerator g)` + `void writeCsv(Writer w)` + `String csvFileName()` + `String jsonKey()`
+- `export/{Profile,Accounts,Holdings,Transactions,Goals,Debts,WalletAddresses,SharedResources,BankConnections,BalanceSnapshots}Exporter.java` — one per entity root
 - `dto/ExportRequest.java` — record `(ReAuthDto reAuth, boolean includeBalanceSnapshots)`
 - `dto/ReAuthDto.java` — record `(String password, String totpCode)` (XOR depending on user)
 - `config/RateLimitConfig.java` — extend with the export bucket (5/h per userId)
 
 Frontend:
 
-- `pages/settings/security/ExportDataSection.tsx` — section card with the "Export my data" button
+- `pages/settings/security/SecuritySection.tsx` — opens `ExportDataDialog` from the "Export my data" button (no separate section card)
 - `pages/settings/security/ExportDataDialog.tsx` — modal with toggle + re-auth field + download trigger
 - `features/export/api.ts` — `requestExport(opts)` returning a `Blob`
 - `features/export/hooks.ts` — `useExportData()` mutation (TanStack Query) wrapping the fetch + blob download

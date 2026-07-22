@@ -170,8 +170,8 @@ requesterMemberId)` keeps only two guards so the instance stays usable:
    `AppUserRepository.countByRole(ADMIN) <= 1`, deletion is refused (403 "Cannot
    delete the last administrator").
 
-Frontend: both member-management UIs (`admin/sections/MembersSection.tsx` and
-`settings/FamilySettingsPage.tsx`) show the delete action for any non-self member.
+Frontend: both member-management UIs (`pages/admin/sections/MembersSection.tsx` and
+`pages/settings/FamilySettingsPage.tsx`) show the delete action for any non-self member.
 Because deletion of an **activated** member is irreversible and destroys private
 data, the shared `ConfirmDialog` is given a `confirmPhrase` (the member's display
 name) that the admin must retype before the destructive call is enabled.

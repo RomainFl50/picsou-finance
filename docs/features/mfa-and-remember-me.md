@@ -9,6 +9,9 @@
 > - `FamilyMemberResponse` was extended with `mfaEnabled: boolean` so the admin Members list can show a "2FA on" badge and gate the Reset 2FA button without an extra round-trip.
 > - Settings UI: `pages/settings/security/` (`SecuritySection`, `MfaEnrollDialog`, `MfaDisableDialog`, `RecoveryCodesDialog`, `RecoveryCodesView`, `SessionsList`) — split out of the design's flat `features/mfa/` proposal because the dialogs are tightly coupled to the settings page layout.
 > - `MfaChallengePage` lives under `<PublicOnly>` (not anonymous-permitted): the user is mid-login (no `access_token`), so `RequireAuth` would loop.
+> - The individual `dto/Mfa*.java` / `dto/RecoveryCodesResponse.java` request/response types below were consolidated into a single `dto/MfaDtos.java` (nested records) instead of one file each.
+> - The admin "Disable 2FA" action lives in `pages/admin/sections/MembersSection.tsx`, not a dedicated `MembersPage.tsx`.
+> - Locale catalogs moved under `i18n/locales/` (`i18n/locales/fr.json`, `i18n/locales/en.json`) as part of the SUPPORTED_LOCALES centralization, not `i18n/fr.json` / `i18n/en.json`.
 
 ## Context
 
