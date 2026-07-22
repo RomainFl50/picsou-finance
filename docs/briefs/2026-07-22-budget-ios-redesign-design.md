@@ -113,12 +113,13 @@ billing) shows a "~min–max" range instead of one misleading fixed amount.
 `ios-app/PicsouTests/BudgetTests.swift` gained real-shape decode tests for every new model (JSON
 fixtures cross-checked field-by-field against the actual backend DTOs, including deliberately extra
 keys to prove decode robustness) plus demo-data-source round-trip coverage (categories, inbox
-categorize, envelope CRUD, recurring confirm/ignore/undo, settings). Known gap flagged by the
-independent review, not yet closed: no `MockURLProtocol`-based test exercises `LiveBudgetDataSource`
-itself, so the real HTTP request shapes (`CategorizeRequest`, `BudgetSettingsRequest`'s carry-through
-fields, the `horizonDays` query param) aren't tested on the wire — the exact class of bug that bit
-this session twice already (see the OAuth refresh-token ADR and the `isManual`/`manual` fix). Worth
-closing before the next Budget change, not blocking for this pass.
+categorize, envelope CRUD, recurring confirm/ignore/undo, settings). The gap flagged by the
+independent review — no test exercised `LiveBudgetDataSource` itself, so the real HTTP request
+shapes weren't tested on the wire — is now closed: `ios-app/PicsouTests/LiveBudgetDataSourceTests.swift`
+exercises it against `MockURLProtocol` (method, path, query params, body fields), including the
+`CategorizeRequest.createRule` always-false case, `BudgetSettingsRequest`'s full field carry-through,
+and the `horizonDays` query param. 73/73 tests passing (8 skipped: the live e2e suite, which needs a
+running backend).
 
 ## Links
 
