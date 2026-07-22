@@ -1,11 +1,9 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useAccounts, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
+import { useAccounts, useAccountTree, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import { useHistory } from '@/features/history/hooks'
-import { useUnnamedPockets } from '@/features/pockets/hooks'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
-import { PocketOnboardingModal } from '@/features/pockets/PocketOnboardingModal'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddAccountModal } from '@/components/shared/AddAccountModal'
 import { AccountCard } from '@/components/shared/AccountCard'
@@ -17,8 +15,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown, Info } from 'lucide-react'
+import { Plus, Wallet, Pencil, Trash2, TrendingUp, TrendingDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Account, AccountRequest, AccountType } from '@/types/api'
 
@@ -82,7 +79,6 @@ type AccountFormData = {
 // ─── Inline pocket card (smaller, with "alloué" tooltip) ─────────────────────
 
 function PocketCard({ account, onClick }: { account: Account; onClick?: () => void }) {
-  const { t } = useTranslation()
   return (
     <Card
       className="cursor-pointer transition-shadow hover:shadow-md"
@@ -95,21 +91,8 @@ function PocketCard({ account, onClick }: { account: Account; onClick?: () => vo
         />
         <div className="min-w-0 flex-1">
           <span className="truncate text-sm font-medium">{account.name}</span>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <div className="mt-1">
             <CurrencyDisplay value={account.currentBalanceEur} className="text-base font-semibold" />
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="flex cursor-help items-center gap-0.5 text-xs text-muted-foreground">
-                    {t('pockets.allocatedLabel')}
-                    <Info className="size-3" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-56 text-center text-xs">
-                  {t('pockets.allocatedTooltip')}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
           </div>
         </div>
       </CardContent>
@@ -127,7 +110,6 @@ export function AccountsPage() {
   const updateAccount = useUpdateAccount()
   const updateDebt = useUpdateDebtMetadata()
   const deleteAccount = useDeleteAccount()
-  const { data: unnamedPockets } = useUnnamedPockets()
   const { data: savingsSuggestions } = useSavingsSuggestions()
   const hasSavingsSuggestions = Array.isArray(savingsSuggestions) && savingsSuggestions.length > 0
 
@@ -136,30 +118,16 @@ export function AccountsPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [filter, setFilter] = useState<AssetFilter>('ALL')
-  const [showPocketModal, setShowPocketModal] = useState(false)
 
   // ── Pocket grouping ──────────────────────────────────────────────────────────
   //
   // Pockets (accounts with parentAccountId set) are excluded from the flat list
   // to avoid double-counting their balance. They are rendered nested under their
-  // parent Revolut wallet instead.
+  // parent Revolut wallet instead. See useAccountTree for the orphaned-pocket
+  // fallback (parent wallet soft-deleted) that keeps such a pocket from vanishing.
 
-  const pocketsByParent = useMemo(() => {
-    const map = new Map<number, Account[]>()
-    for (const a of (accounts ?? [])) {
-      if (a.parentAccountId != null) {
-        if (!map.has(a.parentAccountId)) map.set(a.parentAccountId, [])
-        map.get(a.parentAccountId)!.push(a)
-      }
-    }
-    return map
-  }, [accounts])
-
-  // Non-pocket accounts only — used for totals, history IDs, and chart
-  const nonPocketAccounts = useMemo(
-    () => (accounts ?? []).filter((a) => a.parentAccountId == null),
-    [accounts],
-  )
+  const { nonPocketAccounts, walletGroups: allWalletGroups, standaloneAccounts: allStandaloneAccounts } =
+    useAccountTree(accounts)
 
   // All non-pocket IDs for history query (split mode for per-account breakdown)
   const allAccountIds = useMemo(() => nonPocketAccounts.map((a) => a.id), [nonPocketAccounts])
@@ -172,20 +140,20 @@ export function AccountsPage() {
     return nonPocketAccounts.filter((a) => types.includes(a.type))
   }, [nonPocketAccounts, filter])
 
-  // Wallet groups: parents that have child pockets (e.g. Revolut wallet)
-  const walletGroups = useMemo(
-    () =>
-      filteredNonPockets
-        .filter((a) => pocketsByParent.has(a.id))
-        .map((wallet) => ({ wallet, pockets: pocketsByParent.get(wallet.id)! })),
-    [filteredNonPockets, pocketsByParent],
-  )
+  // Wallet groups: parents that have child pockets (e.g. Revolut wallet), filtered by
+  // the wallet's own type — pockets are shown in full regardless of the asset filter.
+  const walletGroups = useMemo(() => {
+    const types = ASSET_FILTER_MAP[filter]
+    if (!types) return allWalletGroups
+    return allWalletGroups.filter(({ wallet }) => types.includes(wallet.type))
+  }, [allWalletGroups, filter])
 
-  // Standalone accounts: non-pockets without any child pockets
-  const standaloneAccounts = useMemo(
-    () => filteredNonPockets.filter((a) => !pocketsByParent.has(a.id)),
-    [filteredNonPockets, pocketsByParent],
-  )
+  // Standalone accounts: non-pockets without any child pockets, filtered by type
+  const standaloneAccounts = useMemo(() => {
+    const types = ASSET_FILTER_MAP[filter]
+    if (!types) return allStandaloneAccounts
+    return allStandaloneAccounts.filter((a) => types.includes(a.type))
+  }, [allStandaloneAccounts, filter])
 
   // Whether current filter contains investment accounts (for PnL display)
   const hasHoldings = filteredNonPockets.some((a) => HOLDING_ACCOUNT_TYPES.includes(a.type))
@@ -237,7 +205,9 @@ export function AccountsPage() {
       isManual: false,
       color: meta.color,
       ticker: null,
+      logoUrl: null,
       createdAt: '',
+      hidden: false,
     }))
   }, [accounts, nonPocketAccounts, filter, t])
 
@@ -367,7 +337,6 @@ export function AccountsPage() {
   const isMutating = updateAccount.isPending || updateDebt.isPending
 
   const hasAnyAccounts = (accounts?.length ?? 0) > 0
-  const hasUnnamedPockets = (unnamedPockets?.length ?? 0) > 0
 
   return (
     <div className="space-y-6">
@@ -380,23 +349,6 @@ export function AccountsPage() {
           </Button>
         }
       />
-
-      {/* Unnamed pockets banner */}
-      {hasUnnamedPockets && unnamedPockets && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/30">
-          <p className="text-sm text-amber-800 dark:text-amber-300">
-            {t('pockets.unnamedPocketsBanner', { count: unnamedPockets.length })}
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            className="ml-4 shrink-0"
-            onClick={() => setShowPocketModal(true)}
-          >
-            {t('pockets.nameYourPockets')}
-          </Button>
-        </div>
-      )}
 
       {/* Savings suggestions banner */}
       {hasSavingsSuggestions && (
@@ -423,7 +375,7 @@ export function AccountsPage() {
                 key={f}
                 onClick={() => setFilter(f)}
                 className={cn(
-                  'inline-flex items-center justify-center rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                  'inline-flex h-10 min-w-32 items-center justify-center rounded-md px-6 text-sm font-medium transition-[background-color,color]',
                   filter === f
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -484,6 +436,7 @@ export function AccountsPage() {
         </div>
       ) : filteredNonPockets.length === 0 ? (
         <EmptyState
+          className="min-h-[calc(100vh-14rem)]"
           icon={<Wallet className="size-12" />}
           title={t('accounts.noAccounts')}
           action={{ label: t('accounts.addAccount'), onClick: handleOpenCreate }}
@@ -620,16 +573,6 @@ export function AccountsPage() {
         loading={deleteAccount.isPending}
         variant="destructive"
       />
-
-      {/* Pocket onboarding modal — shown when unnamed pockets exist */}
-      {unnamedPockets && unnamedPockets.length > 0 && accounts && (
-        <PocketOnboardingModal
-          open={showPocketModal}
-          onOpenChange={setShowPocketModal}
-          pockets={unnamedPockets}
-          accounts={accounts}
-        />
-      )}
     </div>
   )
 }

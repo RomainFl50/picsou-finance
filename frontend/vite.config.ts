@@ -2,8 +2,30 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
+import fs from 'node:fs'
+
+const localCertPath = path.resolve(__dirname, '.local/certs/picsou-local-cert.pem')
+const localKeyPath = path.resolve(__dirname, '.local/certs/picsou-local-key.pem')
+const localHttps =
+  fs.existsSync(localCertPath) && fs.existsSync(localKeyPath)
+    ? {
+        cert: fs.readFileSync(localCertPath),
+        key: fs.readFileSync(localKeyPath),
+      }
+    : undefined
+
+interface PackageJson {
+  version: string
+}
+
+const packageJsonPath = path.resolve(__dirname, 'package.json')
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as PackageJson
+const appVersion = process.env.VITE_APP_VERSION ?? packageJson.version
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -47,7 +69,10 @@ export default defineConfig({
     ],
   },
   server: {
-    port: 5173,
+    // PORT override lets tooling (preview harnesses, parallel worktrees) pick
+    // a free port; defaults to the documented 5173.
+    port: Number(process.env.PORT) || 5173,
+    https: localHttps,
     proxy: {
       '/api': {
         target: process.env.VITE_API_TARGET || 'http://localhost:8080',

@@ -9,6 +9,11 @@ interface Props {
   totalMonthlyPayment: number | null
 }
 
+/**
+ * Renders the dashboard's liabilities (loans) as their own reading, separate
+ * from assets and portfolio performance (issue #18). Each row shows the
+ * outstanding amount in red, its repayment progress, and the monthly payment.
+ */
 export function LiabilitiesCard({ liabilities, totalMonthlyPayment }: Props) {
   const { t } = useTranslation()
   const totalDebt = liabilities.reduce((sum, l) => sum + l.balanceEur, 0)

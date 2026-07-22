@@ -17,6 +17,7 @@ Run: .venv/bin/python tests/test_profile_lock.py   (no pytest needed)
 """
 
 import os
+import json
 import sys
 import tempfile
 
@@ -123,12 +124,113 @@ async def test_progress_endpoint_reads_back_last_phase():
         main._progress.clear()
 
 
+async def test_sync_without_login_returns_session_expired_when_profile_is_dead():
+    """Unattended scheduler syncs must not fall back to a fresh login/mobile approval.
+    When the profile session cannot be reused, the sidecar should return the same flat
+    401 shape the backend already understands."""
+    original_harvest = main._harvest_from_profile
+
+    async def dead_profile(member_id):
+        return None
+
+    main._harvest_from_profile = dead_profile
+    main._member_locks.clear()
+    try:
+        req = main.SyncRequest(
+            phoneNumber="+33600000000",
+            passcode="123456",
+            memberId="1",
+            allowLogin=False,
+        )
+
+        result = await main.sync(req)
+
+        assert getattr(result, "status_code", None) == 401, result
+        assert json.loads(result.body) == {"error": "SESSION_EXPIRED"}
+    finally:
+        main._harvest_from_profile = original_harvest
+        main._member_locks.clear()
+
+
+async def test_browser_launch_failure_is_flat_503_not_asgi_exception():
+    """A Camoufox launch failure during fresh login should be converted to a flat
+    sidecar error instead of escaping through FastAPI as a stacktrace."""
+    original_harvest = main._harvest_from_profile
+    original_camoufox = main._camoufox
+
+    async def dead_profile(member_id):
+        return None
+
+    class FailingCamoufox:
+        async def __aenter__(self):
+            raise main.BrowserLaunchError("boom")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    main._harvest_from_profile = dead_profile
+    main._camoufox = lambda member_id, headless: FailingCamoufox()
+    main._member_locks.clear()
+    try:
+        req = main.SyncRequest(phoneNumber="+33600000000", passcode="123456", memberId="1")
+
+        result = await main.sync(req)
+
+        assert getattr(result, "status_code", None) == 503, result
+        assert json.loads(result.body) == {"error": "BROWSER_LAUNCH_FAILED"}
+    finally:
+        main._harvest_from_profile = original_harvest
+        main._camoufox = original_camoufox
+        main._member_locks.clear()
+
+
+async def test_launch_recovery_quarantines_profile_and_retries_once():
+    """When an existing profile prevents browser launch, the sidecar quarantines it
+    and retries once with a clean profile instead of leaving the member wedged."""
+    with tempfile.TemporaryDirectory() as root:
+        original_root = main.PROFILES_ROOT
+        original_camoufox = main._camoufox
+        main.PROFILES_ROOT = root
+        entries = 0
+
+        class SometimesFailingCamoufox:
+            async def __aenter__(self):
+                nonlocal entries
+                entries += 1
+                if entries == 1:
+                    raise RuntimeError("profile is wedged")
+                return "ctx"
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        try:
+            profile = main._profile_dir("1")
+            open(os.path.join(profile, "prefs.js"), "w").close()
+            main._camoufox = lambda member_id, headless: SometimesFailingCamoufox()
+
+            async with main._open_camoufox("1", headless=True, recover_profile=True) as ctx:
+                assert ctx == "ctx"
+
+            quarantine_root = os.path.join(root, ".quarantine")
+            quarantined = os.listdir(quarantine_root)
+            assert len(quarantined) == 1
+            assert os.path.exists(os.path.join(quarantine_root, quarantined[0], "prefs.js"))
+            assert entries == 2
+        finally:
+            main.PROFILES_ROOT = original_root
+            main._camoufox = original_camoufox
+
+
 async def _run():
     tests = [
         test_concurrent_sync_for_same_member_fast_fails_409,
         test_lock_keyed_on_sanitized_profile_key,
         test_clear_stale_locks_removes_lock_files,
         test_progress_endpoint_reads_back_last_phase,
+        test_sync_without_login_returns_session_expired_when_profile_is_dead,
+        test_browser_launch_failure_is_flat_503_not_asgi_exception,
+        test_launch_recovery_quarantines_profile_and_retries_once,
     ]
     failures = 0
     for t in tests:

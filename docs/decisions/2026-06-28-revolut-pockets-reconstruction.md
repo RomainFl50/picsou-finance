@@ -1,7 +1,13 @@
 # ADR: Reconstruct Revolut pockets from PSD2 internal-transfer rows
 
+> **Superseded (2026-07-14):** the Revolut sidecar connector (Camoufox) now syncs real pockets
+> with real balances directly from `app.revolut.com` — see
+> [`revolut-sidecar.md`](../features/revolut-sidecar.md). This PSD2 heuristic reconstruction has
+> been removed from the codebase; this document is kept as a historical record of the original
+> decision and its trade-offs.
+
 > Date: 2026-06-28
-> Status: ✅ Active
+> Status: ⚠️ Superseded (2026-07-14)
 
 ## Context
 

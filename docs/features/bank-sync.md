@@ -132,7 +132,7 @@ Enable Banking needs the following, stored/loaded in **two different places** �
 | --- | --- | --- |
 | Application ID | DB (`app_setting`) or `ENABLEBANKING_APPLICATION_ID` | Setup wizard / Admin → Integrations |
 | Redirect URI | DB (`app_setting`) or `ENABLEBANKING_REDIRECT_URI` | Setup wizard / Admin → Integrations |
-| **RSA private key** | **Filesystem** (`/data/keys/enablebanking-private.pem`), or `ENABLEBANKING_PRIVATE_KEY_PATH` / inline `ENABLEBANKING_PRIVATE_KEY` | Setup wizard keypair step / **Admin → Integrations keypair panel** |
+| **RSA private key** | **Filesystem** (`/data/keys/enablebanking-private.pem` in Docker, `backend/.local/keys/enablebanking-private.pem` in dev), or `ENABLEBANKING_PRIVATE_KEY_PATH` / inline `ENABLEBANKING_PRIVATE_KEY` | Setup wizard keypair step / **Admin → Integrations keypair panel** |
 
 **Application ID == Key ID.** Per Enable Banking's [quick-start spec](https://enablebanking.com/docs/api/quick-start/) the JWT header `kid` *is* the application's ID and the private key file is named `<applicationId>.pem` — so the "Key ID" is never a distinct value. Picsou therefore collects **only the Application ID** (in both the wizard and the admin page) and derives the Key ID from it: `EnableBankingConfigProvider.keyId()` returns an explicitly-configured value if present (legacy `ENABLEBANKING_KEY_ID` env / `key-id` DB row, kept for backward compatibility), otherwise falls back to `applicationId()`. `SetupService.writeEnableBankingConfig(applicationId, redirectUri)` writes the `key-id` row in lock-step with `application-id` so a later app-id change can't be shadowed by a stale DB key-id (which, being DB-first in `resolve()`, would otherwise win).
 
@@ -148,6 +148,7 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 
 - **Powens is disabled in 1.0.0**: `@Primary` was removed from `PowensBankConnector`, so even setting `POWENS_CLIENT_ID` will NOT activate Powens — Enable Banking stays injected. To re-enable after validating the adapter, restore `@Primary` on `PowensBankConnector` and set `POWENS_CLIENT_ID`.
 - **Enable Banking RSA key**: The private key must be PKCS8 PEM format. The `ENABLEBANKING_PRIVATE_KEY` env var can contain literal `\n` characters -- both formats are handled in `parsePem()`. The key lives on disk, **not** in the DB — see "Enable Banking configuration" above; setting only the text fields (Application ID + Redirect URI) leaves searches failing until a key is generated/imported.
+- **Local dev key path**: the `dev` Spring profile stores the generated key under `backend/.local/keys/enablebanking-private.pem` so bare-metal macOS/Linux runs do not try to create Docker's `/data/keys` directory at filesystem root.
 - **Enable Banking redirect URI must be registered**: `ENABLEBANKING_REDIRECT_URI` defaults to `http://localhost:5173/sync/callback` (dev only). In production, set it to `http://<host>:8080/sync/callback` in `.env`. The same URL must be registered in the Enable Banking developer portal under the application's Redirect URIs. A mismatch causes a `REDIRECT_URI_NOT_ALLOWED` 400 error at auth initiation — it surfaces in the Add Account modal bank wizard.
 - **ALREADY_AUTHORIZED**: If the OAuth code is reused (e.g. browser back button), `SyncService.completeConnection()` catches the error and falls back to refreshing the latest linked session instead of failing.
 - **Type upgrade on resync**: If the user has not customized an account's type, `upsertAccount()` will upgrade it from CHECKING to the detected type on the next sync. Manual user changes are preserved (only CHECKING is auto-upgraded).
@@ -156,6 +157,7 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
   don't expose per-account currency. Picsou resolves this via IBAN-first matching and uid refresh on
   match; if an account has no IBAN it will fall back to uid matching and may be treated as a new
   account after an EB provider upgrade. This is tracked by `V46__account_iban.sql`.
+- **Bank logos**: `InstitutionData.logoUrl` (Enable Banking only — Powens hardcodes `null`) is captured at connection time and copied onto each `Account`. See [bank-logos.md](./bank-logos.md) for the capture/backfill flow and the account card fallback to `color`.
 
 ## Tests
 
@@ -171,3 +173,4 @@ Because the text fields (Application ID + Redirect URI) live in Postgres while t
 - Related ADR: [Dual bank providers](../decisions/2026-03-01-dual-bank-providers.md)
 - Related ADR: [Ports and adapters](../decisions/2026-01-01-ports-and-adapters.md)
 - Downstream feature: [Budget & Cashflow](./budget.md) (consumes ingested transactions)
+- Related: [bank-logos.md](./bank-logos.md) — logo capture/backfill and account card rendering

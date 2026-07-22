@@ -30,7 +30,8 @@ public record TransactionResponse(
     Long aiSuggestedCategoryId,
     Integer aiConfidence,
     Long accountId,
-    String accountName
+    String accountName,
+    BigDecimal fees
 ) {
     public static TransactionResponse from(Transaction t) {
         return new TransactionResponse(
@@ -56,7 +57,8 @@ public record TransactionResponse(
             t.getAiSuggestedCategoryId(),
             t.getAiConfidence(),
             t.getAccount().getId(),
-            t.getAccount().getName()
+            t.getAccount().getName(),
+            t.getFees()
         );
     }
 }

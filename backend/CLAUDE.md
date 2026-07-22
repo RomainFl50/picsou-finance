@@ -27,7 +27,12 @@ com.picsou/
 ├── port/         Abstractions for external providers
 ├── adapter/      Port implementations (Enable Banking, CoinGecko, Yahoo Finance)
 ├── config/       Spring beans: security, JWT, rate limiting, properties
-└── exception/    GlobalExceptionHandler + custom exceptions
+├── exception/    GlobalExceptionHandler + custom exceptions
+├── imports/      CSV transaction import (dialect detection, row mapping, parsing)
+├── finary/       Finary API sync + persistence helpers
+├── export/       Transaction export
+├── mcp/          Embedded MCP server (tools, scopes, OAuth)
+└── validation/   Custom bean-validation constraints
 ```
 
 ## Key patterns

@@ -2,10 +2,13 @@ package com.picsou.service;
 
 import com.picsou.dto.GoalProgressResponse;
 import com.picsou.dto.GoalRequest;
+import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountType;
 import com.picsou.model.FamilyMember;
 import com.picsou.model.Goal;
+import com.picsou.model.GoalManualContribution;
+import com.picsou.model.GoalMonthOverride;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.FamilyMemberRepository;
@@ -22,6 +25,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -68,10 +72,10 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "LEP", AccountType.LEP, null, "EUR",
                 new BigDecimal("5000"), new BigDecimal("5000"),
-                null, true, "#6366f1", null, null, null, null, null, null
+                null, true, "#6366f1", null, null, null, null, null, null, null, false
             )
         );
-        when(accountService.liveBalanceEur(account)).thenReturn(new BigDecimal("5000"));
+        when(accountService.signedLiveBalanceEur(account)).thenReturn(new BigDecimal("5000"));
         when(snapshotRepository.findRecentByAccountId(
             org.mockito.ArgumentMatchers.eq(1L),
             org.mockito.ArgumentMatchers.any()
@@ -92,6 +96,66 @@ class GoalServiceTest {
         assertThat(progress.monthlyNeeded()).isEqualByComparingTo(
             new BigDecimal("15000").divide(BigDecimal.valueOf(monthsLeft), 2, RoundingMode.HALF_UP));
         assertThat(progress.percentComplete()).isEqualByComparingTo("25.0000");
+    }
+
+    @Test
+    void progressCalculation_linkedLoan_countsNegatively() {
+        Account asset = Account.builder()
+            .id(1L)
+            .name("LEP")
+            .type(AccountType.LEP)
+            .currency("EUR")
+            .currentBalance(new BigDecimal("5000"))
+            .color("#6366f1")
+            .build();
+        Account loan = Account.builder()
+            .id(2L)
+            .name("Prêt")
+            .type(AccountType.LOAN)
+            .currency("EUR")
+            .currentBalance(new BigDecimal("2000"))
+            .color("#ef4444")
+            .build();
+
+        Goal goal = Goal.builder()
+            .id(1L)
+            .name("Apport net")
+            .targetAmount(new BigDecimal("20000"))
+            .deadline(LocalDate.now().plusMonths(6))
+            .accounts(List.of(asset, loan))
+            .build();
+
+        when(accountService.toResponse(asset)).thenReturn(
+            new com.picsou.dto.AccountResponse(
+                1L, "LEP", AccountType.LEP, null, "EUR",
+                new BigDecimal("5000"), new BigDecimal("5000"),
+                null, true, "#6366f1", null, null, null, null, null, null, null, false
+            )
+        );
+        when(accountService.toResponse(loan)).thenReturn(
+            new com.picsou.dto.AccountResponse(
+                2L, "Prêt", AccountType.LOAN, null, "EUR",
+                new BigDecimal("2000"), new BigDecimal("2000"),
+                null, true, "#ef4444", null, null, null, null, null, null, null, false
+            )
+        );
+        when(accountService.signedLiveBalanceEur(asset)).thenReturn(new BigDecimal("5000"));
+        // LOAN: the signed helper returns the outstanding debt as a NEGATIVE value.
+        when(accountService.signedLiveBalanceEur(loan)).thenReturn(new BigDecimal("-2000"));
+        when(snapshotRepository.findRecentByAccountId(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()
+        )).thenReturn(List.of());
+
+        GoalProgressResponse progress = goalService.toProgressResponse(goal);
+
+        // 5000 − 2000: the linked loan reduces goal progress.
+        assertThat(progress.currentTotal()).isEqualByComparingTo("3000");
+        long monthsLeft = progress.monthsLeft();
+        assertThat(monthsLeft).isIn(5L, 6L);
+        // monthlyNeeded derives from the netted total: (20000 − 3000) / monthsLeft.
+        assertThat(progress.monthlyNeeded()).isEqualByComparingTo(
+            new BigDecimal("17000").divide(BigDecimal.valueOf(monthsLeft), 2, RoundingMode.HALF_UP));
     }
 
     // ─── IDOR regression (GHSA security audit 2026-06-27) ──────────────────────
@@ -143,6 +207,76 @@ class GoalServiceTest {
     }
 
     @Test
+    void deleteMonthOverride_foreignGoal_doesNotDelete() {
+        when(goalRepository.findByIdAndMemberId(99L, 42L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> goalService.deleteMonthOverride(99L, "2026-06", 42L))
+            .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(overrideRepository, never()).findByGoalIdAndYearMonth(any(), any());
+        verify(overrideRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteManualContribution_foreignGoal_doesNotDelete() {
+        when(goalRepository.findByIdAndMemberId(99L, 42L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> goalService.deleteManualContribution(99L, "2026-06", 42L))
+            .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(manualContributionRepository, never()).findByGoalIdAndYearMonth(any(), any());
+        verify(manualContributionRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteMonthOverride_ownedGoal_deletesEntry() {
+        Goal goal = Goal.builder()
+            .id(99L)
+            .name("Trip")
+            .targetAmount(new BigDecimal("1200"))
+            .deadline(LocalDate.now().plusMonths(6))
+            .accounts(List.of())
+            .build();
+        GoalMonthOverride override = new GoalMonthOverride();
+        override.setGoal(goal);
+        override.setYearMonth("2026-06");
+        override.setAmount(new BigDecimal("150"));
+        when(goalRepository.findByIdAndMemberId(99L, 42L)).thenReturn(Optional.of(goal));
+        when(overrideRepository.findByGoalIdAndYearMonth(99L, "2026-06"))
+            .thenReturn(Optional.of(override));
+
+        var response = goalService.deleteMonthOverride(99L, "2026-06", 42L);
+
+        verify(overrideRepository).delete(override);
+        assertThat(response.yearMonth()).isEqualTo("2026-06");
+        assertThat(response.override()).isNull();
+    }
+
+    @Test
+    void deleteManualContribution_ownedGoal_deletesEntry() {
+        Goal goal = Goal.builder()
+            .id(99L)
+            .name("Trip")
+            .targetAmount(new BigDecimal("1200"))
+            .deadline(LocalDate.now().plusMonths(6))
+            .accounts(List.of())
+            .build();
+        GoalManualContribution contribution = new GoalManualContribution();
+        contribution.setGoal(goal);
+        contribution.setYearMonth("2026-06");
+        contribution.setAmount(new BigDecimal("150"));
+        when(goalRepository.findByIdAndMemberId(99L, 42L)).thenReturn(Optional.of(goal));
+        when(manualContributionRepository.findByGoalIdAndYearMonth(99L, "2026-06"))
+            .thenReturn(Optional.of(contribution));
+
+        var response = goalService.deleteManualContribution(99L, "2026-06", 42L);
+
+        verify(manualContributionRepository).delete(contribution);
+        assertThat(response.yearMonth()).isEqualTo("2026-06");
+        assertThat(response.manualActual()).isNull();
+    }
+
+    @Test
     void isOnTrack_false_whenPastEffectivesBelowPastObjectives() {
         // 3 past months, each with snapshot delta = 1000€.
         // Target 12000, current 0, deadline +3 months → monthlyNeeded = 4000.
@@ -165,10 +299,10 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "Livret", AccountType.SAVINGS, null, "EUR",
                 BigDecimal.ZERO, BigDecimal.ZERO,
-                null, true, "#000", null, null, null, null, null, null
+                null, true, "#000", null, null, null, null, null, null, null, false
             )
         );
-        when(accountService.liveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
+        when(accountService.signedLiveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
         when(snapshotRepository.findRecentByAccountId(
             org.mockito.ArgumentMatchers.eq(1L),
             org.mockito.ArgumentMatchers.any()
@@ -203,6 +337,48 @@ class GoalServiceTest {
     }
 
     @Test
+    void avgMonthlyContribution_loanPaydown_countsAsPositiveProgress() {
+        // Outstanding debt shrinks 12000 → 9000 over 3 months: the raw snapshot delta
+        // is −1000/month, but paying down a linked loan is positive progress.
+        Account loan = Account.builder()
+            .id(1L).name("Mortgage").type(AccountType.LOAN)
+            .currency("EUR").currentBalance(new BigDecimal("9000"))
+            .color("#ef4444").build();
+
+        Goal goal = Goal.builder()
+            .id(1L).name("Rembourser").targetAmount(new BigDecimal("12000"))
+            .deadline(LocalDate.now().plusMonths(12))
+            .accounts(List.of(loan))
+            .build();
+
+        when(accountService.toResponse(loan)).thenReturn(
+            new com.picsou.dto.AccountResponse(
+                1L, "Mortgage", AccountType.LOAN, null, "EUR",
+                new BigDecimal("9000"), new BigDecimal("9000"),
+                null, true, "#ef4444", null, null, null, null, null, null, null, false
+            )
+        );
+        when(accountService.signedLiveBalanceEur(loan)).thenReturn(new BigDecimal("-9000"));
+        LocalDate threeMonthsAgo = LocalDate.now().minusMonths(3);
+        when(snapshotRepository.findRecentByAccountId(
+            org.mockito.ArgumentMatchers.eq(1L),
+            org.mockito.ArgumentMatchers.any()
+        )).thenReturn(List.of(
+            com.picsou.model.BalanceSnapshot.builder()
+                .balance(new BigDecimal("12000")).date(threeMonthsAgo).build(),
+            com.picsou.model.BalanceSnapshot.builder()
+                .balance(new BigDecimal("9000")).date(LocalDate.now()).build()
+        ));
+        lenient().when(overrideRepository.findByGoalId(1L)).thenReturn(List.of());
+        lenient().when(manualContributionRepository.findByGoalId(1L)).thenReturn(List.of());
+
+        GoalProgressResponse progress = goalService.toProgressResponse(goal);
+
+        // (12000 − 9000) / 3 months, sign flipped for the LOAN account.
+        assertThat(progress.avgMonthlyContribution()).isEqualByComparingTo("1000");
+    }
+
+    @Test
     void isOnTrack_true_whenManualContributionCoversShortfall() {
         // Same setup as the "behind" test but user declares 4000€ manual contribution
         // for each of the 3 past months → effective matches objective → on track.
@@ -224,10 +400,10 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "Livret", AccountType.SAVINGS, null, "EUR",
                 BigDecimal.ZERO, BigDecimal.ZERO,
-                null, true, "#000", null, null, null, null, null, null
+                null, true, "#000", null, null, null, null, null, null, null, false
             )
         );
-        when(accountService.liveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
+        when(accountService.signedLiveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
         when(snapshotRepository.findRecentByAccountId(
             org.mockito.ArgumentMatchers.eq(1L),
             org.mockito.ArgumentMatchers.any()
@@ -270,10 +446,10 @@ class GoalServiceTest {
             new com.picsou.dto.AccountResponse(
                 1L, "LEP", AccountType.LEP, null, "EUR",
                 BigDecimal.ZERO, BigDecimal.ZERO,
-                null, true, "#000", null, null, null, null, null, null
+                null, true, "#000", null, null, null, null, null, null, null, false
             )
         );
-        when(accountService.liveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
+        when(accountService.signedLiveBalanceEur(account)).thenReturn(BigDecimal.ZERO);
         when(snapshotRepository.findRecentByAccountId(
             org.mockito.ArgumentMatchers.eq(1L),
             org.mockito.ArgumentMatchers.any()

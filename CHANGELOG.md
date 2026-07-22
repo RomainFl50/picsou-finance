@@ -53,6 +53,15 @@ information architecture.
 - The budget section's single 7-tab page was replaced by the nested-route IA above, and recurring
   detection was rewritten around canonical merchant identity (it previously drifted on the raw
   bank counterparty and never auto-acted).
+- **PnL no longer counts outstanding debt as an investment loss (#18).** Loans
+  contribute 0 to `pnl` in every aggregation path (history points, live PnL,
+  MCP `get_profit_and_loss`); `rangePnl` compares only holdings priced on both
+  sides of the range; allocation percentages divide by their own side of the
+  balance sheet (assets by total assets, liabilities by total liabilities).
+  Net-worth totals are unchanged — loans remain liabilities. The dashboard
+  chart is now titled by wealth mode instead of "Gain / Loss", its tooltip
+  shows the backend's debt-neutral gain/loss, and a new Liabilities card lists
+  loans separately.
 
 ### Notes
 

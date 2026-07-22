@@ -1,6 +1,7 @@
+import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi } from './api'
-import type { AccountRequest, Account, DebtRequest, HoldingResponse, RealEstateMetadataRequest, TransactionRequest } from '@/types/api'
+import type { AccountRequest, Account, DebtRequest, HoldingResponse, RealEstateMetadataRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
@@ -137,6 +138,43 @@ export function useAccounts() {
     queryFn: accountsApi.list,
     staleTime: QUERY_STALE_TIMES.accounts,
   })
+}
+
+export interface AccountTree {
+  walletGroups: Array<{ wallet: Account; pockets: Account[] }>
+  standaloneAccounts: Account[]
+  nonPocketAccounts: Account[]
+}
+
+/**
+ * Groups a flat account list into wallet -> pockets, matching Account.parentAccountId.
+ * A pocket whose parent isn't present in `accounts` (e.g. the wallet was soft-deleted)
+ * falls back into nonPocketAccounts/standaloneAccounts instead of silently vanishing.
+ */
+export function useAccountTree(accounts: Account[] | undefined): AccountTree {
+  return useMemo(() => {
+    const accountIds = new Set((accounts ?? []).map((a) => a.id))
+
+    const pocketsByParent = new Map<number, Account[]>()
+    for (const a of (accounts ?? [])) {
+      if (a.parentAccountId != null && accountIds.has(a.parentAccountId)) {
+        if (!pocketsByParent.has(a.parentAccountId)) pocketsByParent.set(a.parentAccountId, [])
+        pocketsByParent.get(a.parentAccountId)!.push(a)
+      }
+    }
+
+    const nonPocketAccounts = (accounts ?? []).filter(
+      (a) => a.parentAccountId == null || !accountIds.has(a.parentAccountId),
+    )
+
+    const walletGroups = nonPocketAccounts
+      .filter((a) => pocketsByParent.has(a.id))
+      .map((wallet) => ({ wallet, pockets: pocketsByParent.get(wallet.id)! }))
+
+    const standaloneAccounts = nonPocketAccounts.filter((a) => !pocketsByParent.has(a.id))
+
+    return { walletGroups, standaloneAccounts, nonPocketAccounts }
+  }, [accounts])
 }
 
 export function useAccount(id: number) {
@@ -287,6 +325,19 @@ export function useLoanSummary(id: number, enabled: boolean = true) {
   })
 }
 
+export function useImportTRTransactions(accountId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (file: File) => accountsApi.importTRTransactions(accountId, file),
+    onSuccess: () => {
+      // The CSV import creates transactions on multiple TR accounts (Cash, PEA, Titres),
+      // so we need to invalidate all account-level queries — not just the triggering account.
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
 export function useAddTransaction(accountId: number) {
   const queryClient = useQueryClient()
   return useMutation({
@@ -354,6 +405,40 @@ export function useDeleteHolding(accountId: number) {
 }
 
 // ---------------------------------------------------------------------------
+// CSV transaction import + realized P&L
+// ---------------------------------------------------------------------------
+
+export function usePreviewImport(accountId: number) {
+  return useMutation({
+    mutationFn: (file: File) => accountsApi.importPreview(accountId, file),
+  })
+}
+
+export function useExecuteImport(accountId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: TransactionImportRequest) => accountsApi.importExecute(accountId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'holdings'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'history'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', accountId, 'realized-pnl'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', accountId] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useRealizedPnl(accountId: number, enabled = true) {
+  return useQuery({
+    queryKey: ['accounts', accountId, 'realized-pnl'],
+    queryFn: () => accountsApi.realizedPnl(accountId),
+    staleTime: QUERY_STALE_TIMES.accountDetail,
+    enabled: enabled && !!accountId,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Price history
 // ---------------------------------------------------------------------------
 
@@ -385,5 +470,25 @@ export function usePriceHistory(ticker: string | null, months: number, range: st
     },
     enabled: !!ticker,
     staleTime: 2 * 60 * 1000,
+  })
+}
+
+export function useAllAccounts() {
+  return useQuery({
+    queryKey: ['accounts', 'all'],
+    queryFn: accountsApi.listAll,
+    staleTime: QUERY_STALE_TIMES.accounts,
+  })
+}
+
+export function useToggleAccountVisibility() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, hidden }: { id: number; hidden: boolean }) => accountsApi.setVisibility(id, hidden),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['history'] })
+    },
   })
 }

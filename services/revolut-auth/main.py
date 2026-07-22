@@ -35,8 +35,10 @@ import asyncio
 import logging
 import os
 import re
+import shutil
 import time
 from collections import Counter
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -59,11 +61,16 @@ ENROLMENT_APPROVE_WAIT_S = 300
 POLL_MS = 3000
 MAX_TRANSACTION_PAGES = 20
 TRANSACTION_WINDOW_DAYS = 90
+CAMOUFOX_LAUNCH_TIMEOUT_S = float(os.environ.get("CAMOUFOX_LAUNCH_TIMEOUT_S", "60"))
 
 NOISE_POCKET_TYPES = {"MERCHANT", "REVX_FIAT"}
 FIAT_FALLBACK = {"EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "SEK", "NOK", "DKK",
                  "PLN", "CZK", "HUF", "RON", "BGN", "TRY", "ZAR", "SGD", "HKD", "NZD",
                  "MXN", "ILS", "AED", "THB"}
+
+
+class BrowserLaunchError(RuntimeError):
+    """Raised when Camoufox cannot open a member profile within the bounded launch window."""
 
 
 def _profile_key(member_id: str) -> str:
@@ -120,6 +127,77 @@ def _camoufox(member_id: str, headless: bool):
                          persistent_context=True, user_data_dir=_profile_dir(member_id))
 
 
+def _quarantine_profile(member_id: str) -> Optional[str]:
+    """Move a suspect Firefox profile aside and leave a fresh directory in its place."""
+    key = _profile_key(member_id)
+    profile = os.path.join(PROFILES_ROOT, key)
+    if not os.path.isdir(profile) or not os.listdir(profile):
+        return None
+
+    quarantine_root = os.path.join(PROFILES_ROOT, ".quarantine")
+    os.makedirs(quarantine_root, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    target = os.path.join(quarantine_root, f"{key}-{stamp}")
+    suffix = 1
+    while os.path.exists(target):
+        suffix += 1
+        target = os.path.join(quarantine_root, f"{key}-{stamp}-{suffix}")
+
+    shutil.move(profile, target)
+    os.makedirs(profile, exist_ok=True)
+    log.warning("member %s: quarantined Revolut browser profile at %s", member_id, target)
+    return target
+
+
+@asynccontextmanager
+async def _open_camoufox(member_id: str, headless: bool, recover_profile: bool = False):
+    """Open Camoufox with a bounded launch time and one profile-recovery retry.
+
+    Playwright's default persistent-context launch timeout is long enough to outlive the
+    backend's old sync budget. Bounding it here keeps /sync in control of its own error
+    shape, and quarantining a wedged profile gives the member one clean retry before we
+    surface a flat sidecar failure to Java.
+    """
+    attempts = 2 if recover_profile and _has_profile(member_id) else 1
+    last_error: Optional[BaseException] = None
+
+    for attempt in range(attempts):
+        manager = _camoufox(member_id, headless=headless)
+        ctx = None
+        try:
+            async with asyncio.timeout(CAMOUFOX_LAUNCH_TIMEOUT_S):
+                ctx = await manager.__aenter__()
+        except asyncio.TimeoutError as exc:
+            last_error = exc
+            log.warning("member %s: Camoufox launch timed out after %.0fs (headless=%s)",
+                        member_id, CAMOUFOX_LAUNCH_TIMEOUT_S, headless)
+        except BrowserLaunchError as exc:
+            last_error = exc
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            log.warning("member %s: Camoufox launch failed (headless=%s): %s",
+                        member_id, headless, exc)
+        else:
+            try:
+                yield ctx
+            except BaseException as exc:  # noqa: BLE001
+                suppress = await manager.__aexit__(type(exc), exc, exc.__traceback__)
+                if not suppress:
+                    raise
+            else:
+                await manager.__aexit__(None, None, None)
+            return
+
+        if ctx is not None:
+            await manager.__aexit__(None, None, None)
+        if recover_profile and attempt == 0 and _has_profile(member_id):
+            _quarantine_profile(member_id)
+            continue
+        break
+
+    raise BrowserLaunchError(str(last_error) if last_error else "Camoufox launch failed")
+
+
 # ─── Auth / device id ─────────────────────────────────────────────────────────
 
 async def _device_id(ctx) -> str:
@@ -159,6 +237,11 @@ def _minor_to_major(value: Any) -> float:
 def session_expired() -> JSONResponse:
     """Flat 401 the backend parses (not FastAPI's HTTPException, which wraps `detail`)."""
     return JSONResponse(status_code=401, content={"error": "SESSION_EXPIRED"})
+
+
+def browser_launch_failed() -> JSONResponse:
+    """Flat 503 the backend parses when the browser runtime/profile cannot launch."""
+    return JSONResponse(status_code=503, content={"error": "BROWSER_LAUNCH_FAILED"})
 
 
 # ─── In-page authenticated fetch (below the app's JS, per docs §3.4) ────────────
@@ -549,6 +632,7 @@ class SyncRequest(BaseModel):
     phoneNumber: str
     passcode: str
     memberId: str
+    allowLogin: bool = True
 
 
 async def _harvest_from_profile(member_id: str) -> Optional[Dict[str, Any]]:
@@ -558,7 +642,8 @@ async def _harvest_from_profile(member_id: str) -> Optional[Dict[str, Any]]:
     lifetime need no mobile approval, and lets a future keep-alive make daily sync free."""
     if not _has_profile(member_id):
         return None
-    async with _camoufox(member_id, headless=True) as ctx:
+    log.info("member %s: launching headless browser (session reuse attempt)", member_id)
+    async with _open_camoufox(member_id, headless=True, recover_profile=True) as ctx:
         page = await ctx.new_page()
         await _settle(page)
         device_id = await _device_id(ctx)
@@ -592,44 +677,73 @@ async def sync(req: SyncRequest):
 
     async with lock:
         _set_progress(req.memberId, "CHECKING_SESSION")
-        reused = await _harvest_from_profile(req.memberId)
+        log.info("member %s: checking for a reusable session", req.memberId)
+        t0 = time.monotonic()
+        try:
+            reused = await _harvest_from_profile(req.memberId)
+        except Exception as exc:  # noqa: BLE001
+            # Headless launch/harvest can fail for reasons unrelated to the session itself
+            # (e.g. a broken browser environment) -- don't let that take down the whole
+            # /sync call, fall back to the fresh (headful) login below just like an
+            # absent/dead session would.
+            log.warning("member %s: headless session-reuse attempt failed, "
+                        "falling back to fresh login: %s", req.memberId, exc)
+            reused = None
         if reused is not None:
-            log.info("synced %d accounts (reused session) for member %s",
-                     len(reused["accounts"]), req.memberId)
+            log.info("synced %d accounts (reused session) for member %s in %.1fs",
+                     len(reused["accounts"]), req.memberId, time.monotonic() - t0)
             return reused
+        if not req.allowLogin:
+            log.info("member %s: no reusable session (%.1fs), fresh login disabled",
+                     req.memberId, time.monotonic() - t0)
+            return session_expired()
+        log.info("member %s: no reusable session (%.1fs), starting fresh login",
+                  req.memberId, time.monotonic() - t0)
 
         _set_progress(req.memberId, "LOGGING_IN")
-        async with _camoufox(req.memberId, headless=False) as ctx:  # headful login (Xvfb in the image)
-            page = await ctx.new_page()
-            await page.goto(APP_URL, wait_until="domcontentloaded", timeout=45000)
-            await page.wait_for_timeout(3000)
-            if "passcode" not in page.url:
-                await _fill_phone(page, req.phoneNumber)
-            if "passcode" in page.url or await page.get_by_role("textbox").count() >= 6:
-                await _fill_passcode(page, req.passcode)
+        t0 = time.monotonic()
+        try:
+            async with _open_camoufox(req.memberId, headless=False, recover_profile=True) as ctx:
+                page = await ctx.new_page()
+                await page.goto(APP_URL, wait_until="domcontentloaded", timeout=45000)
+                await page.wait_for_timeout(3000)
+                if "passcode" not in page.url:
+                    await _fill_phone(page, req.phoneNumber)
+                if "passcode" in page.url or await page.get_by_role("textbox").count() >= 6:
+                    await _fill_passcode(page, req.passcode)
 
-            log.info("login: waiting up to %ss for mobile approval", ENROLMENT_APPROVE_WAIT_S)
-            approved = False
-            for i in range(ENROLMENT_APPROVE_WAIT_S * 1000 // POLL_MS):
-                _set_progress(req.memberId, "AWAITING_APPROVAL",
-                              elapsedSeconds=i * POLL_MS // 1000,
-                              remainingSeconds=ENROLMENT_APPROVE_WAIT_S - i * POLL_MS // 1000)
-                if await _logged_in(page):
-                    approved = True
-                    break
-                await page.wait_for_timeout(POLL_MS)
-            if not approved:
-                return JSONResponse(status_code=408, content={"error": "APPROVAL_TIMEOUT"})
+                log.info("member %s: login form submitted in %.1fs, waiting up to %ss for mobile approval",
+                          req.memberId, time.monotonic() - t0, ENROLMENT_APPROVE_WAIT_S)
+                t0 = time.monotonic()
+                approved = False
+                for i in range(ENROLMENT_APPROVE_WAIT_S * 1000 // POLL_MS):
+                    _set_progress(req.memberId, "AWAITING_APPROVAL",
+                                  elapsedSeconds=i * POLL_MS // 1000,
+                                  remainingSeconds=ENROLMENT_APPROVE_WAIT_S - i * POLL_MS // 1000)
+                    if await _logged_in(page):
+                        approved = True
+                        break
+                    await page.wait_for_timeout(POLL_MS)
+                if not approved:
+                    log.warning("member %s: mobile approval timed out after %.1fs",
+                                 req.memberId, time.monotonic() - t0)
+                    return JSONResponse(status_code=408, content={"error": "APPROVAL_TIMEOUT"})
+                log.info("member %s: mobile approval received after %.1fs",
+                          req.memberId, time.monotonic() - t0)
 
-            device_id = await _device_id(ctx)
-            await _settle(page)
-            _set_progress(req.memberId, "HARVESTING")
-            result = await harvest_accounts(
-                page, device_id,
-                on_progress=lambda n: _set_progress(req.memberId, "HARVESTING", accountsFound=n))
-            log.info("synced %d accounts (fresh login) for member %s",
-                     len(result["accounts"]), req.memberId)
-            return result
+                device_id = await _device_id(ctx)
+                await _settle(page)
+                _set_progress(req.memberId, "HARVESTING")
+                t0 = time.monotonic()
+                result = await harvest_accounts(
+                    page, device_id,
+                    on_progress=lambda n: _set_progress(req.memberId, "HARVESTING", accountsFound=n))
+                log.info("synced %d accounts (fresh login) for member %s in %.1fs",
+                         len(result["accounts"]), req.memberId, time.monotonic() - t0)
+                return result
+        except BrowserLaunchError as exc:
+            log.warning("member %s: fresh-login browser launch failed: %s", req.memberId, exc)
+            return browser_launch_failed()
 
 
 @app.get("/progress/{member_id}")

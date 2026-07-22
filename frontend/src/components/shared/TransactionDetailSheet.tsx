@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Pencil, Trash2 } from 'lucide-react'
 import type { Category, Transaction } from '@/types/api'
@@ -45,14 +45,19 @@ export function TransactionDetailSheet({
   const isMobile = useIsMobile()
   const [pendingCategoryId, setPendingCategoryId] = useState<number | ''>('')
 
-  useEffect(() => {
-    if (tx && categories) {
-      const match = categories.find(c => c.name === tx.category)
-      setPendingCategoryId(match ? match.id : '')
-    } else {
-      setPendingCategoryId('')
-    }
-  }, [tx, categories])
+  // Re-derive the pending category whenever `tx`/`categories` change, without
+  // discarding an in-progress edit on every re-render: adjust state during
+  // rendering (React's recommended alternative to an effect here) by tracking
+  // the (tx, categories) pair we last derived from.
+  const [derivedFrom, setDerivedFrom] = useState<{ tx: typeof tx | undefined; categories: typeof categories }>({
+    tx: undefined,
+    categories: undefined,
+  })
+  if (tx !== derivedFrom.tx || categories !== derivedFrom.categories) {
+    setDerivedFrom({ tx, categories })
+    const match = tx && categories ? categories.find(c => c.name === tx.category) : undefined
+    setPendingCategoryId(match ? match.id : '')
+  }
 
   if (!tx) return null
 
@@ -73,10 +78,10 @@ export function TransactionDetailSheet({
           logoUrl={logoUrlFor?.(tx.merchantBrandId)}
           size="md"
         />
-        <div className="min-w-0">
-          <p className="font-semibold truncate">{tx.merchantLabel || tx.description}</p>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold break-words">{tx.merchantLabel || tx.description}</p>
           {tx.merchantLabel && tx.description !== tx.merchantLabel && (
-            <p className="text-xs text-muted-foreground truncate">{tx.description}</p>
+            <p className="text-xs text-muted-foreground break-words">{tx.description}</p>
           )}
         </div>
       </div>
@@ -173,7 +178,7 @@ export function TransactionDetailSheet({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-sm max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>{t('transactions.detail')}</DialogTitle>
         </DialogHeader>

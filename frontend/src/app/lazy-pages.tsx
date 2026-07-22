@@ -131,6 +131,10 @@ export const SetupStepCrypto = lazy(() =>
   }))
 )
 
+export const ConsentPage = lazy(() =>
+  import('@/pages/oauth/ConsentPage').then((m) => ({ default: m.ConsentPage }))
+)
+
 export const NotFoundPage = lazy(() =>
   import('@/pages/error/NotFoundPage').then((m) => ({ default: m.NotFoundPage }))
 )
@@ -141,6 +145,12 @@ export const ServerErrorPage = lazy(() =>
   import('@/pages/error/ServerErrorPage').then((m) => ({ default: m.ServerErrorPage }))
 )
 
-export function SuspensePage({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<LoadingSkeleton />}>{children}</Suspense>
+export function SuspensePage({
+  children,
+  fallback = <LoadingSkeleton />,
+}: {
+  children: React.ReactNode
+  fallback?: React.ReactNode
+}) {
+  return <Suspense fallback={fallback}>{children}</Suspense>
 }

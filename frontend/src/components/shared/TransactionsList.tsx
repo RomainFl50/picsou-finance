@@ -6,6 +6,7 @@ import { TransactionDetailSheet } from '@/components/shared/TransactionDetailShe
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { localeFromLanguage } from '@/lib/utils'
 
 interface TransactionsListProps {
   transactions: Transaction[]
@@ -24,9 +25,10 @@ export function TransactionsList({
   categories,
   onCategorize,
 }: TransactionsListProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [search, setSearch] = useState('')
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
+  const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
 
   const filtered = search
     ? transactions.filter(tr => {
@@ -65,11 +67,7 @@ export function TransactionsList({
             <div key={date}>
               {dateIdx > 0 && <Separator className="my-3" />}
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {new Date(date).toLocaleDateString('fr-FR', {
-                  weekday: 'short',
-                  day: 'numeric',
-                  month: 'short',
-                })}
+                {formatTransactionDate(date, locale)}
               </p>
               <div className="space-y-0.5">
                 {grouped[date].map((tr, rowIdx) => (
@@ -99,4 +97,13 @@ export function TransactionsList({
       />
     </>
   )
+}
+
+function formatTransactionDate(date: string, locale: string): string {
+  const label = new Intl.DateTimeFormat(locale, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(date))
+  return label.charAt(0).toLocaleUpperCase(locale) + label.slice(1)
 }

@@ -132,6 +132,17 @@ public class RateLimitConfig {
         return new ConcurrentHashMap<>();
     }
 
+    /**
+     * Per-IP OAuth2 Dynamic Client Registration limiter: 10 registrations per 15 minutes.
+     * {@code POST /oauth2/register} is unauthenticated by design (RFC 7591) so a remote-MCP client
+     * can self-register before login — that openness makes IP throttling the only guard against a
+     * flood of throwaway {@code oauth2_registered_client} rows.
+     */
+    @Bean("oauthRegisterBuckets")
+    public Map<String, Bucket> oauthRegisterBuckets() {
+        return new ConcurrentHashMap<>();
+    }
+
     public static Bucket createLoginBucket() {
         return Bucket.builder()
             .addLimit(Bandwidth.builder()
@@ -245,6 +256,21 @@ public class RateLimitConfig {
             .addLimit(Bandwidth.builder()
                 .capacity(10)
                 .refillIntervally(10, Duration.ofMinutes(60))
+                .build())
+            .build();
+    }
+
+    /**
+     * Per-IP DCR throttle: 10 client registrations per 15 minutes. Generous enough that a legitimate
+     * operator re-registering a few MCP clients (or retrying after a fixed request) never gets
+     * blocked, while bounding an anonymous flood against the open {@code POST /oauth2/register}
+     * endpoint.
+     */
+    public static Bucket createOauthRegisterBucket() {
+        return Bucket.builder()
+            .addLimit(Bandwidth.builder()
+                .capacity(10)
+                .refillIntervally(10, Duration.ofMinutes(15))
                 .build())
             .build();
     }

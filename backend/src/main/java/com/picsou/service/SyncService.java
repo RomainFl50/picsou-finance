@@ -35,7 +35,6 @@ public class SyncService {
     private final TransactionRepository transactionRepository;
     private final CategorizationService categorizationService;
     private final RecurringDetectionService recurringDetectionService;
-    private final RevolutPocketService revolutPocketService;
 
     /** How far back to pull transactions on each sync; dedup makes the overlap harmless. */
     private static final int TRANSACTION_LOOKBACK_DAYS = 90;
@@ -48,8 +47,7 @@ public class SyncService {
         AccountService accountService,
         TransactionRepository transactionRepository,
         CategorizationService categorizationService,
-        RecurringDetectionService recurringDetectionService,
-        RevolutPocketService revolutPocketService
+        RecurringDetectionService recurringDetectionService
     ) {
         this.bankConnector = bankConnector;
         this.accountRepository = accountRepository;
@@ -59,7 +57,6 @@ public class SyncService {
         this.transactionRepository = transactionRepository;
         this.categorizationService = categorizationService;
         this.recurringDetectionService = recurringDetectionService;
-        this.revolutPocketService = revolutPocketService;
     }
 
     /**
@@ -71,23 +68,6 @@ public class SyncService {
             recurringDetectionService.detect(memberId, LocalDate.now());
         } catch (Exception ex) {
             log.warn("Recurring detection skipped for member {}: {}", memberId, ex.getMessage());
-        }
-    }
-
-    /**
-     * Run the Revolut pocket backfill for a member after all accounts and their transactions
-     * have been upserted. The backfill reconstructs pockets over the member's full history
-     * (not just the 90-day sync window), so historical "To … MB" rows are cleaned up too.
-     * Isolated from the enclosing sync transaction the same way {@link #detectRecurring} is —
-     * a backfill failure must never roll back freshly-ingested balances.
-     * <p>
-     * No-op if the member has no Revolut wallet accounts.
-     */
-    private void runPocketBackfill(Long memberId) {
-        try {
-            revolutPocketService.backfillForMember(memberId);
-        } catch (Exception ex) {
-            log.warn("Revolut pocket backfill skipped for member {}: {}", memberId, ex.getMessage());
         }
     }
 
@@ -103,6 +83,7 @@ public class SyncService {
             .requisitionId(result.requisitionId())
             .institutionId(institutionId)
             .institutionName(institutionName)
+            .logoUrl(resolveLogoUrl(institutionId, institutionName))
             .status(RequisitionStatus.CREATED)
             .authLink(result.authLink())
             .build();
@@ -150,18 +131,11 @@ public class SyncService {
         FamilyMember member = requisition.getMember();
 
         List<AccountResponse> responses = accountDataList.stream()
-            .map(data -> upsertAccount(data, requisition.getInstitutionName(), member, sessionId))
+            .map(data -> upsertAccount(data, requisition, member))
             .flatMap(Optional::stream)
             .toList();
 
-        // If the bank hasn't finished linking accounts yet, leave the
-        // requisition retryable (status=FAILED so the UI shows the retry
-        // button). The session id is preserved, so retrySync() just refetches
-        // without going back through OAuth.
-        if (accountDataList.isEmpty()) {
-            requisition.setStatus(RequisitionStatus.FAILED);
-            requisitionRepository.save(requisition);
-            log.info("Enable Banking session {} not yet populated — marking retryable", sessionId);
+        if (markRetryableIfEmpty(requisition, accountDataList, "completion")) {
             return responses;
         }
 
@@ -170,7 +144,6 @@ public class SyncService {
         requisitionRepository.save(requisition);
 
         detectRecurring(member.getId());
-        runPocketBackfill(member.getId());
 
         log.info("Completed Enable Banking sync for {}: {} accounts linked", requisition.getInstitutionName(), responses.size());
         return responses;
@@ -195,6 +168,7 @@ public class SyncService {
             .orElseThrow(() -> new ResourceNotFoundException("Requisition not found"));
 
         log.info("Retrying sync for {} (session={})", req.getInstitutionName(), req.getRequisitionId());
+        ensureLogoUrl(req);
 
         List<BankConnectorPort.AccountData> accountDataList;
         try {
@@ -208,18 +182,11 @@ public class SyncService {
         FamilyMember member = req.getMember();
 
         List<AccountResponse> responses = accountDataList.stream()
-            .map(data -> upsertAccount(data, req.getInstitutionName(), member, req.getRequisitionId()))
+            .map(data -> upsertAccount(data, req, member))
             .flatMap(Optional::stream)
             .toList();
 
-        // Mirror completeConnection(): if the bank still hasn't populated accounts,
-        // keep the requisition FAILED (retryable) rather than promoting it to LINKED
-        // with zero accounts — which would hide the retry button and strand the user.
-        if (accountDataList.isEmpty()) {
-            req.setStatus(RequisitionStatus.FAILED);
-            requisitionRepository.save(req);
-            log.info("Enable Banking session {} still not populated on retry — keeping retryable",
-                req.getRequisitionId());
+        if (markRetryableIfEmpty(req, accountDataList, "retry")) {
             return responses;
         }
 
@@ -228,7 +195,6 @@ public class SyncService {
         requisitionRepository.save(req);
 
         detectRecurring(member.getId());
-        runPocketBackfill(member.getId());
 
         log.info("Retry sync OK for {}: {} accounts linked", req.getInstitutionName(), responses.size());
         return responses;
@@ -281,13 +247,16 @@ public class SyncService {
         List<Requisition> linked = requisitionRepository.findByStatusAndMemberIdOrderByCreatedAtDesc(RequisitionStatus.LINKED, memberId);
         for (Requisition req : linked) {
             try {
+                ensureLogoUrl(req);
                 List<BankConnectorPort.AccountData> accounts = bankConnector.fetchBalances(req.getRequisitionId());
+                if (markRetryableIfEmpty(req, accounts, "resync")) {
+                    continue;
+                }
                 FamilyMember member = req.getMember();
-                accounts.forEach(data -> upsertAccount(data, req.getInstitutionName(), member, req.getRequisitionId()));
+                accounts.forEach(data -> upsertAccount(data, req, member));
                 req.setLastSyncedAt(Instant.now());
                 requisitionRepository.save(req);
                 detectRecurring(member.getId());
-                runPocketBackfill(member.getId());
                 log.info("Auto-resync OK for {}: {} accounts", req.getInstitutionName(), accounts.size());
             } catch (Exception ex) {
                 req.setStatus(RequisitionStatus.FAILED);
@@ -304,22 +273,115 @@ public class SyncService {
             .stream().findFirst()
             .orElseThrow(() -> new SyncException("No linked session found to refresh."));
 
+        ensureLogoUrl(req);
         FamilyMember member = req.getMember();
 
         List<BankConnectorPort.AccountData> accountDataList = bankConnector.fetchBalances(req.getRequisitionId());
+        if (markRetryableIfEmpty(req, accountDataList, "refresh")) {
+            return List.of();
+        }
         List<AccountResponse> responses = accountDataList.stream()
-            .map(data -> upsertAccount(data, req.getInstitutionName(), member, req.getRequisitionId()))
+            .map(data -> upsertAccount(data, req, member))
             .flatMap(Optional::stream)
             .toList();
         req.setLastSyncedAt(Instant.now());
         requisitionRepository.save(req);
         detectRecurring(member.getId());
-        runPocketBackfill(member.getId());
         log.info("Refreshed {} accounts for {}", responses.size(), req.getInstitutionName());
         return responses;
     }
 
     // --- Private ---
+
+    /**
+     * Enable Banking can return an empty account list while the provider is still
+     * linking accounts asynchronously. Treating that as success hides the retry
+     * button and makes the UI claim "synced" even though no account changed.
+     */
+    private boolean markRetryableIfEmpty(
+        Requisition requisition,
+        List<BankConnectorPort.AccountData> accountDataList,
+        String operation
+    ) {
+        if (!accountDataList.isEmpty()) return false;
+
+        // An already-LINKED session that suddenly returns no accounts is more likely a
+        // transient provider gap than a broken link. Demoting it would make the status
+        // flap LINKED → FAILED on every scheduled resync — keep it LINKED and just skip.
+        if (requisition.getStatus() == RequisitionStatus.LINKED) {
+            log.warn("Enable Banking session {} returned no accounts during {} — keeping LINKED, skipping update",
+                requisition.getRequisitionId(), operation);
+            return true;
+        }
+
+        requisition.setStatus(RequisitionStatus.FAILED);
+        requisitionRepository.save(requisition);
+        log.info("Enable Banking session {} returned no accounts during {} — marking retryable",
+            requisition.getRequisitionId(), operation);
+        return true;
+    }
+
+    /**
+     * Best-effort backfill for requisitions created before bank logos were captured
+     * (or whose logo lookup missed the first time): re-searches institutions, scoped
+     * to the requisition's own country, and stores the match's logo, if any.
+     *
+     * <p>Bounded to a single attempt per requisition via {@code logoBackfillAttemptedAt}
+     * — a miss (renamed institution, no provider logo) is not retried on every
+     * resync/retry forever. The marker is only set once the search call actually
+     * completes, so a transient network failure can still be retried next sync.
+     */
+    private void ensureLogoUrl(Requisition req) {
+        if (req.getLogoUrl() != null || req.getLogoBackfillAttemptedAt() != null) return;
+        try {
+            String country = parseCountry(req.getInstitutionId());
+            List<BankConnectorPort.InstitutionData> matches = bankConnector.searchInstitutions(req.getInstitutionName(), country);
+            req.setLogoBackfillAttemptedAt(Instant.now());
+            findInstitution(matches, req.getInstitutionId(), req.getInstitutionName())
+                .map(BankConnectorPort.InstitutionData::logoUrl)
+                .ifPresent(req::setLogoUrl);
+        } catch (Exception ex) {
+            log.warn("Could not backfill logo for requisition {} ({}): {}", req.getId(), req.getInstitutionName(), ex.getMessage());
+        }
+    }
+
+    /**
+     * Resolves a bank's logo at connection-initiation time from the server's own
+     * institution catalog — the client-supplied logoUrl is never trusted/persisted,
+     * since nothing between an arbitrary client-supplied URL and the Accounts page
+     * `<img src>` would validate its scheme or host.
+     */
+    private String resolveLogoUrl(String institutionId, String institutionName) {
+        try {
+            List<BankConnectorPort.InstitutionData> matches =
+                bankConnector.searchInstitutions(institutionName, parseCountry(institutionId));
+            return findInstitution(matches, institutionId, institutionName)
+                .map(BankConnectorPort.InstitutionData::logoUrl)
+                .orElse(null);
+        } catch (Exception ex) {
+            log.warn("Could not resolve logo for institution {} ({}): {}", institutionId, institutionName, ex.getMessage());
+            return null;
+        }
+    }
+
+    /** Matches by exact institution id first; falls back to a case-insensitive name match only if no id match exists. */
+    private static Optional<BankConnectorPort.InstitutionData> findInstitution(
+        List<BankConnectorPort.InstitutionData> candidates, String institutionId, String institutionName
+    ) {
+        return candidates.stream()
+            .filter(i -> i.id().equals(institutionId))
+            .findFirst()
+            .or(() -> candidates.stream()
+                .filter(i -> i.name().equalsIgnoreCase(institutionName))
+                .findFirst());
+    }
+
+    /** institutionId format: "BankName::FR" (name::country) — see EnableBankingBankConnector. */
+    private static String parseCountry(String institutionId) {
+        if (institutionId == null) return null;
+        String[] parts = institutionId.split("::");
+        return parts.length > 1 ? parts[1] : null;
+    }
 
     /**
      * Returns {@link Optional#empty()} when the matching account was soft-deleted
@@ -337,7 +399,7 @@ public class SyncService {
      * </ol>
      * Soft-delete guards follow the same two-step order.
      */
-    private Optional<AccountResponse> upsertAccount(BankConnectorPort.AccountData data, String provider, FamilyMember member, String sessionId) {
+    private Optional<AccountResponse> upsertAccount(BankConnectorPort.AccountData data, Requisition requisition, FamilyMember member) {
         // Step 1: locate an existing active account (IBAN-first when available)
         Optional<Account> existing = Optional.empty();
         if (data.iban() != null) {
@@ -369,12 +431,16 @@ public class SyncService {
             if (data.iban() != null) {
                 account.setIban(data.iban());
             }
+            // Backfill the bank logo on a pre-logo account once the requisition has one.
+            if (account.getLogoUrl() == null && requisition.getLogoUrl() != null) {
+                account.setLogoUrl(requisition.getLogoUrl());
+            }
         } else {
             account = Account.builder()
                 .member(member)
                 .name(data.name() != null ? data.name() : "Account")
                 .type(AccountType.CHECKING)
-                .provider(provider)
+                .provider(requisition.getInstitutionName())
                 .currency(data.currency() != null ? data.currency() : "EUR")
                 .currentBalance(data.balance())
                 .lastSyncedAt(Instant.now())
@@ -382,13 +448,14 @@ public class SyncService {
                 .iban(data.iban())
                 .isManual(false)
                 .color("#6366f1")
+                .logoUrl(requisition.getLogoUrl())
                 .build();
         }
 
         account = accountRepository.save(account);
         accountService.upsertSnapshot(account, data.balance(), LocalDate.now());
 
-        ingestTransactions(account, sessionId, member);
+        ingestTransactions(account, requisition.getRequisitionId(), member);
 
         return Optional.of(accountService.toResponse(account));
     }
@@ -436,8 +503,6 @@ public class SyncService {
                 .build();
             categorizationService.autoCategorize(tx, categorization);
             transactionRepository.save(tx);
-            // After persisting, detect and process Revolut pocket transfers.
-            revolutPocketService.processTransaction(tx, member.getId());
             inserted++;
         }
         if (inserted > 0) {

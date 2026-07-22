@@ -1,19 +1,22 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import { toast } from 'sonner'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   useAccount, useAccountHistory, useHoldingsWithLivePrices,
   useAccountTransactions, useAddTransaction, useDeleteTransaction,
-  useUpdateTransaction, useUpdateHolding, useDeleteHolding
+  useUpdateTransaction, useUpdateHolding, useDeleteHolding, useImportTRTransactions
 } from '@/features/accounts/hooks'
 import { useCategories, useCategorize } from '@/features/budget/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { BalanceHistoryChart } from '@/components/shared/BalanceHistoryChart'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
 import { HoldingsTable } from '@/components/shared/HoldingsTable'
+import { RealizedPnlSection } from '@/components/shared/RealizedPnlSection'
 import { TransactionsList } from '@/components/shared/TransactionsList'
 import { AddTransactionModal } from '@/components/shared/AddTransactionModal'
+import { ImportTransactionsModal } from '@/components/shared/ImportTransactionsModal'
 import { EditHoldingModal } from '@/components/shared/EditHoldingModal'
 import { MonthEndBalanceModal } from '@/components/shared/MonthEndBalanceModal'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
@@ -26,9 +29,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Info } from 'lucide-react'
-import { formatLocalDate, accountTypeLabel } from '@/lib/utils'
+import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Upload } from 'lucide-react'
+import { formatLocalDate } from '@/lib/utils'
+import { accountTypeLabelKey } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
 
@@ -47,8 +50,9 @@ export function AccountDetailPage() {
   const addTxMutation = useAddTransaction(accountId)
   const deleteTxMutation = useDeleteTransaction(accountId)
   const updateTxMutation = useUpdateTransaction(accountId)
-  const updateHoldingMutation = useUpdateHolding(accountId)
   const deleteHoldingMutation = useDeleteHolding(accountId)
+  const updateHoldingMutation = useUpdateHolding(accountId)
+  const importTRMutation = useImportTRTransactions(accountId)
   const { data: pnlData } = useHistory(accountId ? [accountId] : [], 12)
   const { data: savingsSuggestions } = useSavingsSuggestions()
   const { data: categories } = useCategories()
@@ -57,9 +61,36 @@ export function AccountDetailPage() {
 
   const [showHistory, setShowHistory] = useState(false)
   const [showAddTx, setShowAddTx] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [editingHolding, setEditingHolding] = useState<HoldingResponse | null>(null)
   const [range, setRange] = useState<TimeRange>('1Y')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (file) {
+      importTRMutation.mutate(file, {
+        onSuccess: (result) => {
+          if (result && result.inserted > 0) {
+            toast.success(
+              result.skipped > 0
+                ? t('accounts.importSuccessWithSkipped', { count: result.inserted, skipped: result.skipped })
+                : t('accounts.importSuccess', { count: result.inserted }),
+            )
+          } else {
+            toast.info(t('accounts.importAlreadyDone'))
+          }
+        },
+        onError: (err) => {
+          toast.error(t('accounts.importError', { message: err instanceof Error ? err.message : 'Unknown error' }))
+        },
+      })
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
 
   function handleCategorize(txId: number, categoryId: number) {
     categorizeMutation.mutate(
@@ -76,7 +107,6 @@ export function AccountDetailPage() {
 
   const chartData = (history ?? []).map(s => ({ date: s.date, balance: s.balance }))
   const isLoan = account?.type === 'LOAN'
-  const isPocket = account?.parentAccountId != null
   // A freshly bank-synced livret is typed CHECKING until configured, so also surface the
   // section when it already has a config or the detector flagged it as a savings candidate.
   const savingsSuggestion = Array.isArray(savingsSuggestions)
@@ -144,14 +174,37 @@ export function AccountDetailPage() {
         )
       )}
 
+      {/* Realized P&L on closed positions (investment accounts only) */}
+      {showHoldings && <RealizedPnlSection accountId={accountId} enabled={showHoldings} />}
+
       {/* Transactions */}
       {!isLoan && (transactions ? (
         <>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-base font-semibold">{t('accounts.transactions')}</h3>
-            <Button size="sm" variant="outline" onClick={() => setShowAddTx(true)}>
-              + Ajouter
-            </Button>
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+              />
+              {account?.provider === 'Trade Republic' && account?.type === 'CHECKING' && (
+                <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importTRMutation.isPending}>
+                  {importTRMutation.isPending ? t('common.loading') : t('accounts.importCsvTR')}
+                </Button>
+              )}
+              {showHoldings && (
+                <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
+                  <Upload className="mr-1.5 size-4" />
+                  {t('import.importCsv')}
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={() => setShowAddTx(true)}>
+                + Ajouter
+              </Button>
+            </div>
           </div>
           <TransactionsList
             transactions={transactions}
@@ -198,7 +251,7 @@ export function AccountDetailPage() {
       <PageHeader
         surtitle={
           account
-            ? `${accountTypeLabel(account.type)}${account.provider ? ` · ${account.provider}` : ''}`
+            ? `${t(accountTypeLabelKey(account.type))}${account.provider ? ` · ${account.provider}` : ''}`
             : undefined
         }
         title={account?.name ?? ''}
@@ -243,25 +296,7 @@ export function AccountDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {/* For pocket sub-accounts, label the balance as "alloué" (total
-                inflows only — internal spending is not synced via PSD2). */}
-            {isPocket ? (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <p className="mb-1 flex cursor-help items-center gap-1 text-xs text-muted-foreground">
-                      {t('pockets.allocatedLabel')}
-                      <Info className="size-3" />
-                    </p>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-64 text-center text-xs">
-                    {t('pockets.allocatedTooltip')}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            ) : (
-              <p className="text-xs text-muted-foreground mb-1">{t('accounts.currentBalance')}</p>
-            )}
+            <p className="text-xs text-muted-foreground mb-1">{t('accounts.currentBalance')}</p>
             <CurrencyDisplay
               value={displayBalance}
               className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`}
@@ -328,6 +363,15 @@ export function AccountDetailPage() {
           accountType={account.type}
           onSubmit={async (data) => { await addTxMutation.mutateAsync(data) }}
           isLoading={addTxMutation.isPending}
+        />
+      )}
+
+      {/* Import CSV modal (investment accounts) */}
+      {account && showHoldings && (
+        <ImportTransactionsModal
+          open={showImport}
+          onOpenChange={setShowImport}
+          accountId={account.id}
         />
       )}
 

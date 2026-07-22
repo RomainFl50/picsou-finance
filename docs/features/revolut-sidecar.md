@@ -1,8 +1,8 @@
 # Feature: Revolut Sidecar Connector
 
-> Last updated: 2026-07-03 (live sync progress + account selection + pocket sub-account nesting)
-> Status: ⚠️ Code shipped + unit-tested; NOT yet tested live end-to-end and the sidecar
-> Docker image is not yet built (`camoufox fetch` pulls ~700 MB Firefox at build time).
+> Last updated: 2026-07-08 (bounded Camoufox launch + unattended sync guard)
+> Status: ⚠️ Code shipped + unit-tested; live end-to-end coverage still depends on a real Revolut
+> approval session.
 
 ## Context
 
@@ -17,12 +17,14 @@ vaults, transactions); Invest/crypto are separate future phases (endpoints noted
 The `services/revolut-auth/` sidecar (Python + FastAPI + **Camoufox** = stealth Firefox) owns a
 **persistent browser profile per member** and exposes ONE data endpoint:
 
-- `POST /sync {phoneNumber, passcode, memberId}` — first tries to **reuse the member's still-live
+- `POST /sync {phoneNumber, passcode, memberId, allowLogin=true}` — first tries to **reuse the member's still-live
   profile session** (headless, no login, no mobile approval); if that session is dead/absent it does
   an **automated login** (Camoufox auto-fills phone + passcode; the user approves the push on their
-  phone) then harvests. Returns `{accounts: [...]}` or `408 APPROVAL_TIMEOUT` / `401 SESSION_EXPIRED`
-  / `409 SYNC_IN_PROGRESS` (a sync for that member is already running). The call can block up to
-  ~5 min waiting for mobile approval.
+  phone) then harvests. `allowLogin=false` is for unattended scheduler calls: reuse a live profile if
+  possible, but return `401 SESSION_EXPIRED` instead of starting a fresh login/mobile approval.
+  Returns `{accounts: [...]}` or `408 APPROVAL_TIMEOUT` / `401 SESSION_EXPIRED` /
+  `409 SYNC_IN_PROGRESS` / `503 BROWSER_LAUNCH_FAILED`. The call can block up to ~5 min waiting for
+  mobile approval, plus bounded browser launch and harvest time.
 - `GET /progress/{memberId}` — the sidecar's live phase for the in-flight `/sync` (CHECKING_SESSION →
   LOGGING_IN → AWAITING_APPROVAL w/ countdown → HARVESTING w/ accounts-found). Purely additive; it does
   not change `/sync`'s control flow or error codes.
@@ -37,7 +39,8 @@ the sidecar's `/progress` and relays phase/countdown/count — and once discover
   trash-deleted account resurrects it).
 - **Sync tab / Sync-all** is automatic: it refreshes imported accounts and auto-adds new pockets, confirming
   with `voluntary:false` (a trash-deleted account is NOT resurrected). Deletion happens only via the trash
-  icon — never by deselecting. The unattended scheduler still uses the synchronous `sync(...)` path.
+  icon — never by deselecting. The unattended scheduler still uses the synchronous `sync(...)` path
+  with `allowLogin=false`, so it never waits for a phone approval when no user is present.
 
 Auth (established by live recon): the retail API needs the httpOnly session cookie (kept in the
 Camoufox profile) **plus** header `x-device-id` (= the JS-readable `revo_device_id` cookie) +
@@ -64,8 +67,8 @@ Banking stays as a fallback for the current account.
   (concurrent-sync 409, stale-lock removal, progress read-back; wallet-parent + same-currency sum);
   run `.venv/bin/python tests/test_*.py` (anyio, no pytest).
 - `services/revolut-auth/Dockerfile` — Camoufox image (Firefox deps + Xvfb + `camoufox fetch`).
-- `backend/.../adapter/RevolutAdapter.java` — WebClient → sidecar `/sync` (330 s timeout) + a best-effort
-  `/progress` poll side-channel relayed into `SyncProgressService`; maps `401`/`408`/`409`.
+- `backend/.../adapter/RevolutAdapter.java` — WebClient → sidecar `/sync` (480 s timeout) + a best-effort
+  `/progress` poll side-channel relayed into `SyncProgressService`; maps `401`/`408`/`409`/`503`.
 - `backend/.../service/sync/SyncProgressService.java` — per-member+provider live progress (single-flight
   guard, phase/countdown/count, + Revolut's harvested-but-unpersisted discovery held in memory between
   discover and confirm). `dto/{SyncProgress,DiscoveredRevolutAccount}.java`, `service/sync/{SyncProvider,
@@ -97,8 +100,8 @@ POST /api/revolut/sync/confirm {selectedExternalIds, remember, voluntary}
      additive — deselect never deletes; voluntary=true lifts trash tombstones, false leaves them)
    → upsert RevolutSession (lastSyncedAt; encrypted creds iff remember)
 ```
-Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synchronous `sync(...)` (imports
-everything; only if creds remembered; reuses live session or no-ops).
+Unattended: `SchedulerService.dailyBankSync → resyncIfSessionActive` → synchronous `sync(..., allowLogin=false)`
+(imports everything; only if creds remembered; reuses live session or no-ops with `SESSION_EXPIRED`).
 
 ## Technical choices
 
@@ -135,8 +138,20 @@ everything; only if creds remembered; reuses live session or no-ops).
   files before each launch (a browser killed mid-login — container restart, OOM — leaves them and
   wedges every later sync until the volume is cleaned by hand).
 - **The sidecar login runs headful under Xvfb** (Camoufox `headless=False`), so the image installs
-  `xvfb` and runs uvicorn under `xvfb-run`. Profiles persist on the `revolut_profiles` docker volume.
+  `xvfb` and starts `Xvfb :99` directly in `entrypoint.sh` before uvicorn. Profiles persist on the
+  `revolut_profiles` docker volume.
 - **Camoufox needs Firefox system libs** (gtk/dbus-glib/xtst/…), different from Chromium.
+- **Headless launches silently fail without GL/Mesa libs.** `_harvest_from_profile` (the
+  session-reuse path tried on *every* `/sync`, before falling back to a fresh login) launches
+  Camoufox with `headless=True` — no Xvfb, no `DISPLAY`. Firefox still spawns a `glxtest`
+  child process to probe GPU capabilities even in that mode, and without `libgl1`/`libegl1`/
+  `libgbm1` in the image, the dynamic linker fails to resolve it — surfacing as a misleading
+  `Failed to spawn child process ".../glxtest": No such file or directory` rather than a "missing
+  shared library" error. The sidecar bounds Camoufox launch to `CAMOUFOX_LAUNCH_TIMEOUT_S` (default
+  60s) instead of Playwright's longer persistent-context timeout. If an existing profile prevents
+  launch, the sidecar moves that profile under `.quarantine/` and retries once with a clean profile.
+  If launch still fails, `/sync` returns flat `503 BROWSER_LAUNCH_FAILED` so the backend logs a
+  controlled connector failure rather than a cancelled reactive response.
 - **Future phases (Invest / Revolut X)** are separate surfaces with stricter auth: `invest.revolut.com`
   (`/api/retail/trading/accounts`, `/trading-access/portfolios/<id>`, `/trading/v2/users/<id>/SECURITY/allocation`,
   `/trading/transactions`) and `exchange.revolut.com` (Revolut X crypto). Both need extra in-memory headers
@@ -149,14 +164,16 @@ everything; only if creds remembered; reuses live session or no-ops).
 - `backend/.../service/RevolutSyncServiceTest.java` — sync mapping (pockets/vaults), IBAN dedup vs
   Enable Banking, transaction dedup, remembered-vs-not credentials, always-upsert session marker row.
 - Live end-to-end (login + harvest against a real account) is still pending the account cool-down.
-- Note: 6 tests are red independently of this feature (`CashflowFlowServiceTest` ×3,
-  `RevolutPocketServiceTest` ×2, `SyncServicePocketTest` ×1 — pre-existing `refreshPocketBalance`
-  save-count / budget NPE issues; verified via `git stash`).
+- Note: 3 tests are red independently of this feature (`CashflowFlowServiceTest` ×3 — pre-existing
+  budget NPE issues; verified via `git stash`). `RevolutPocketServiceTest` and
+  `SyncServicePocketTest` no longer exist — the PSD2 pocket-guess reconstruction they covered was
+  removed on 2026-07-14 (see [Links](#links) below).
 
 ## Links
 
 - Precedent ADR: [tr-auth slim sidecar](../decisions/2026-04-25-tr-auth-sidecar-slim-image.md)
 - Related: [Bank Sync](./bank-sync.md), [Trade Republic](./trade-republic.md),
   [Encryption at rest](./encryption-at-rest.md), [Budget](./budget.md)
-- Partly supersedes: [Revolut pockets reconstruction](../decisions/2026-06-28-revolut-pockets-reconstruction.md)
-  (stands down once the sidecar has synced)
+- Supersedes: [Revolut pockets reconstruction](../decisions/2026-06-28-revolut-pockets-reconstruction.md)
+  — the PSD2 heuristic reconstruction was fully removed on 2026-07-14, this connector is now the
+  only source of pocket data

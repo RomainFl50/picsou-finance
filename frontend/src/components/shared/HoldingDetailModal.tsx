@@ -54,20 +54,31 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
 
   const history = useMemo(() => {
     if (!rawHistory) return []
-    return rawHistory.map(p => ({
-      date: p.date,
-      total: mode === 'holding' && line ? p.priceEur * line.quantity : p.priceEur,
-      ...(investedRef !== undefined ? { invested: investedRef } : {}),
-    }))
+    return rawHistory.map(p => {
+      const total = mode === 'holding' && line ? p.priceEur * line.quantity : p.priceEur
+      return {
+        date: p.date,
+        total,
+        // For a pure holding, value − cost basis IS its debt-free investment
+        // pnl — emit it so the chart tooltip keeps its gain/loss row (the
+        // tooltip reads `pnl` and never recomputes total − invested).
+        ...(investedRef !== undefined ? { invested: investedRef, pnl: total - investedRef } : {}),
+      }
+    })
   }, [rawHistory, mode, line, investedRef])
 
   const intraday = useMemo(() => {
     if (!is24H || !rawHistory) return []
-    return rawHistory.map(p => ({
-      timestamp: p.date,
-      total: mode === 'holding' && line ? p.priceEur * line.quantity : p.priceEur,
-      ...(investedRef !== undefined ? { invested: investedRef } : {}),
-    }))
+    return rawHistory.map(p => {
+      const total = mode === 'holding' && line ? p.priceEur * line.quantity : p.priceEur
+      return {
+        timestamp: p.date,
+        total,
+        // Same as the history mapping above: value − cost basis is the holding's
+        // debt-free pnl; the tooltip reads `pnl` and never recomputes it.
+        ...(investedRef !== undefined ? { invested: investedRef, pnl: total - investedRef } : {}),
+      }
+    })
   }, [rawHistory, mode, line, is24H, investedRef])
 
   const priceChange = useMemo(() => {
@@ -142,7 +153,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
 
               {/* Chart with mode toggle */}
               <div className="space-y-3">
-                <div className="inline-flex items-center rounded-full bg-muted p-0.5">
+                <div className="inline-flex items-center rounded-2xl bg-muted p-1">
                   {([
                     { value: 'price' as ChartMode, label: t('holdings.assetPrice') },
                     { value: 'holding' as ChartMode, label: t('holdings.myPosition') },
@@ -150,9 +161,9 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                     <button
                       key={opt.value}
                       onClick={() => setMode(opt.value)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition-all ${
+                      className={`inline-flex h-10 min-w-32 items-center justify-center rounded-xl px-6 text-sm font-medium transition-[background-color,color] ${
                         mode === opt.value
-                          ? 'bg-background text-foreground shadow-sm'
+                          ? 'bg-background text-foreground'
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >

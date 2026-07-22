@@ -63,6 +63,15 @@ Three security properties are guaranteed structurally (not by per-call checks):
 - `frontend/nginx.conf` + `docker/nginx.conf` — `location /mcp` → backend, SSE-tuned (`proxy_buffering off`, `proxy_read_timeout 3600s`, HTTP/1.1).
 - `frontend/vite.config.ts` — dev proxy `/mcp` → `VITE_API_TARGET`.
 
+The create access-key dialog is intentionally wider than the default dialog
+primitive (`42rem` on desktop) because scope cards render in two columns. The
+dialog itself stays inside `100dvh - 2rem`; only the form body scrolls, while the
+title and action buttons remain visible.
+
+The "Connect your MCP client" block uses full-width code-copy rows: endpoint and
+snippet containers are `min-h-10`, rounded, and padded like app inputs, with copy
+buttons that become full-width on mobile and keep a stable desktop width.
+
 ### Flow
 
 ```

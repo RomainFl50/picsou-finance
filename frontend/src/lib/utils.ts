@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { useAppStore, type DateFormat } from "@/stores/app-store"
+import { DEFAULT_LOCALE, resolveLocale } from "@/i18n/locales"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -18,20 +19,34 @@ export function parseAmount(value: string | null | undefined): number {
 
 export function getLocale(): string {
   try {
-    const lang = document.documentElement.lang || navigator.language
-    return lang.startsWith('fr') ? 'fr-FR' : 'en-US'
+    // <html lang> is kept in sync with the active i18next language (see i18n/index.ts).
+    return localeFromLanguage(document.documentElement.lang || navigator.language)
   } catch {
-    return 'fr-FR'
+    return DEFAULT_LOCALE.intlLocale
+  }
+}
+
+/** Intl locale for a raw language tag, resolved through the SUPPORTED_LOCALES registry. */
+export function localeFromLanguage(language: string | null | undefined): string {
+  return resolveLocale(language).intlLocale
+}
+
+function normalizeIntlLocale(locale: string): string {
+  try {
+    return Intl.NumberFormat.supportedLocalesOf(locale).length > 0 ? locale : DEFAULT_LOCALE.intlLocale
+  } catch {
+    return DEFAULT_LOCALE.intlLocale
   }
 }
 
 export function formatCurrency(value: number, currency = 'EUR', locale = getLocale()): string {
+  const safeLocale = normalizeIntlLocale(locale)
   try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
+    return new Intl.NumberFormat(safeLocale, { style: 'currency', currency }).format(value)
   } catch {
     // An unknown/invalid ISO 4217 code makes Intl.NumberFormat throw a RangeError.
     // Degrade to a plain decimal + the raw code instead of crashing the whole app (issue #9).
-    const num = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+    const num = new Intl.NumberFormat(safeLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
     return `${num} ${currency}`
   }
 }
@@ -103,8 +118,15 @@ export function formatPercent(value: number, locale = getLocale()): string {
   return new Intl.NumberFormat(locale, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)
 }
 
-export function todayLabel(locale = getLocale()): string {
-  return new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
+function capitalizeFirstCharacter(value: string, locale = getLocale()): string {
+  const [first = '', ...rest] = Array.from(value)
+  return first.toLocaleUpperCase(normalizeIntlLocale(locale)) + rest.join('')
+}
+
+export function todayLabel(locale = getLocale(), date = new Date()): string {
+  const safeLocale = normalizeIntlLocale(locale)
+  const label = new Intl.DateTimeFormat(safeLocale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(date)
+  return capitalizeFirstCharacter(label, safeLocale)
 }
 
 export function formatLocalDate(dateStr: string | null | undefined, locale = getLocale()): string {
@@ -122,21 +144,6 @@ export function formatTimeAgo(dateStr: string | null | undefined, locale = getLo
   if (hours < 24) return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-hours, 'hour')
   const days = Math.floor(hours / 24)
   return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-days, 'day')
-}
-
-export function accountTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    LEP: 'LEP',
-    PEA: 'PEA',
-    COMPTE_TITRES: 'Compte-titres',
-    CRYPTO: 'Crypto',
-    CHECKING: 'Compte courant',
-    SAVINGS: 'Épargne',
-    REAL_ESTATE: 'Immobilier',
-    LOAN: 'Emprunt',
-    OTHER: 'Autre',
-  }
-  return labels[type] ?? type
 }
 
 export function safeRedirect(redirect: string | null, fallback = '/'): string {

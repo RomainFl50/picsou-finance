@@ -46,9 +46,9 @@ import java.util.stream.Collectors;
  * session when possible, or performs an automated login with mobile push approval), then upserts
  * the harvested accounts. Java holds no standing browser session -- the durable state is a single
  * {@link RevolutSession} row per member, always upserted (with a fresh {@code lastSyncedAt}) after
- * every successful sync, doubling as "the sidecar has synced this member" marker for
- * {@code RevolutPocketService}. It only carries encrypted credentials when the member explicitly
- * opted in (see {@code remember} below); otherwise it is bookkeeping only.
+ * every successful sync, doubling as "the sidecar has synced this member" marker for downstream
+ * consumers. It only carries encrypted credentials when the member explicitly opted in (see
+ * {@code remember} below); otherwise it is bookkeeping only.
  *
  * <p>Revolut is the <b>primary</b> source for Revolut assets; Enable Banking stays connected as a
  * <b>fallback</b> for the current account (dedup by IBAN in {@link #upsertAccount}, mirroring
@@ -62,8 +62,8 @@ import java.util.stream.Collectors;
  * the member selected -- see {@link SyncProgressService} for the in-memory hand-off between the
  * two. Both routes funnel through {@link #harvest} (sidecar call) and {@link #persistSelected}
  * (the actual upsert loop, scoped to a short {@link TransactionTemplate} transaction instead of
- * the previous class-level one, which used to hold a DB connection open for the sidecar's whole
- * up-to-330s call).
+ * the previous class-level one, which used to hold a DB connection open for the whole long-running
+ * sidecar call).
  */
 @Service
 public class RevolutSyncService {
@@ -122,19 +122,24 @@ public class RevolutSyncService {
      * remembered credentials for this member are forgotten.
      */
     public List<AccountResponse> sync(Long memberId, String phoneNumber, String passcode, boolean remember) {
+        return sync(memberId, phoneNumber, passcode, remember, true);
+    }
+
+    private List<AccountResponse> sync(
+            Long memberId, String phoneNumber, String passcode, boolean remember, boolean allowLogin) {
         boolean explicitCredentials = !isBlank(phoneNumber) && !isBlank(passcode);
         Credentials creds = resolveCredentials(memberId, phoneNumber, passcode);
 
         List<RevolutAccountData> harvested;
         try {
-            harvested = harvest(creds.phone(), creds.passcode(), memberId);
+            harvested = harvest(creds.phone(), creds.passcode(), memberId, allowLogin);
         } catch (SyncException e) {
             throw new SyncException(friendly(e.getMessage()));
         }
 
         // Persist ALL harvested accounts (unattended/scheduler path keeps its auto-import-everything
         // behavior). The DB writes run in a short transaction rather than the previous class-level
-        // one, which used to hold a connection open for the sidecar's whole up-to-330s call.
+        // one, which used to hold a connection open for the whole long-running sidecar call.
         Set<String> all = harvested.stream().map(RevolutAccountData::externalId).collect(Collectors.toSet());
         List<AccountResponse> responses = new ArrayList<>();
         txTemplate.executeWithoutResult(status -> {
@@ -164,7 +169,7 @@ public class RevolutSyncService {
     public void discover(Long memberId, String phoneNumber, String passcode) {
         try {
             Credentials creds = resolveCredentials(memberId, phoneNumber, passcode);
-            List<RevolutAccountData> harvested = harvest(creds.phone(), creds.passcode(), memberId);
+            List<RevolutAccountData> harvested = harvest(creds.phone(), creds.passcode(), memberId, true);
             pendingCredentials.put(memberId, creds);
             progressService.setDiscovered(memberId, SyncProvider.REVOLUT,
                 buildPreview(harvested, memberId), harvested);
@@ -226,6 +231,14 @@ public class RevolutSyncService {
     /** Sidecar call only -- no DB writes. Live phases are streamed by the adapter's poll side-channel. */
     private List<RevolutAccountData> harvest(String phone, String passcode, Long memberId) {
         return revolutPort.sync(phone, passcode, memberId);
+    }
+
+    private List<RevolutAccountData> harvest(
+            String phone, String passcode, Long memberId, boolean allowLogin) {
+        if (allowLogin) {
+            return harvest(phone, passcode, memberId);
+        }
+        return revolutPort.sync(phone, passcode, memberId, false);
     }
 
     /**
@@ -309,6 +322,11 @@ public class RevolutSyncService {
             case "SYNC_IN_PROGRESS" ->
                 "A Revolut sync is already running for this account. Please wait for it to finish " +
                     "before starting another.";
+            case "BROWSER_LAUNCH_FAILED" ->
+                "The Revolut browser service could not start. Please try again after restarting " +
+                    "the connector.";
+            case "REVOLUT_TIMEOUT" ->
+                "The Revolut sync took too long. Please try again later.";
             default -> code;
         };
     }
@@ -357,7 +375,7 @@ public class RevolutSyncService {
         }
 
         try {
-            sync(memberId, null, null, true);
+            sync(memberId, null, null, true, false);
         } catch (Exception ex) {
             log.warn("Revolut auto-sync failed for member {}: {}", memberId, ex.getMessage());
         }
@@ -389,12 +407,12 @@ public class RevolutSyncService {
     /**
      * Applies the post-sync session state. The row is ALWAYS upserted with a fresh
      * {@code lastSyncedAt} after a successful sync, regardless of {@code remember} -- this is
-     * what lets {@link RevolutPocketService} tell "the on-demand sidecar connector already
-     * produced real pockets for this member" apart from "this member merely has some
-     * provider='Revolut' accounts" (which can also come from Enable Banking alone). When
-     * {@code remember} is true the encrypted credentials are stored/updated for unattended daily
-     * resync; when false, any previously-remembered credentials are cleared, but the row itself
-     * (and its {@code lastSyncedAt} marker) stays.
+     * what lets downstream consumers tell "the on-demand sidecar connector already produced real
+     * pockets for this member" apart from "this member merely has some provider='Revolut'
+     * accounts" (which can also come from Enable Banking alone). When {@code remember} is true
+     * the encrypted credentials are stored/updated for unattended daily resync; when false, any
+     * previously-remembered credentials are cleared, but the row itself (and its
+     * {@code lastSyncedAt} marker) stays.
      */
     private void applyPostSyncSessionState(Long memberId, String phone, String passcode, boolean remember) {
         RevolutSession session = sessionRepository.findByMemberId(memberId)

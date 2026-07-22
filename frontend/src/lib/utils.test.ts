@@ -4,7 +4,9 @@ import {
   formatCurrency,
   formatDate,
   formatPercent,
+  localeFromLanguage,
   parseDate,
+  todayLabel,
   isOAuthAuthorizeRedirect,
 } from './utils'
 
@@ -46,6 +48,13 @@ describe('formatCurrency', () => {
     expect(result).toContain('AMAT')
     expect(result).toContain('100')
   })
+
+  it('degrades gracefully when both currency and locale are invalid', () => {
+    expect(() => formatCurrency(100, 'AMAT', 'common.locale')).not.toThrow()
+    const result = formatCurrency(100, 'AMAT', 'common.locale')
+    expect(result).toContain('AMAT')
+    expect(result).toContain('100')
+  })
 })
 
 describe('formatDate', () => {
@@ -60,6 +69,36 @@ describe('formatPercent', () => {
   it('formats percentage', () => {
     const result = formatPercent(0.5)
     expect(result).toContain('50')
+  })
+})
+
+describe('localeFromLanguage', () => {
+  it('maps supported app languages to browser locales', () => {
+    expect(localeFromLanguage('fr')).toBe('fr-FR')
+    expect(localeFromLanguage('fr-CA')).toBe('fr-FR')
+    expect(localeFromLanguage('en')).toBe('en-US')
+    expect(localeFromLanguage('de')).toBe('de-DE')
+    expect(localeFromLanguage('de-AT')).toBe('de-DE')
+    expect(localeFromLanguage('es')).toBe('es-ES')
+  })
+
+  it('falls back to the app default locale for unknown or missing tags', () => {
+    // The app's fallback language is French (i18n fallbackLng: 'fr'),
+    // so unresolvable tags map to fr-FR — not en-US.
+    expect(localeFromLanguage(undefined)).toBe('fr-FR')
+    expect(localeFromLanguage('it')).toBe('fr-FR')
+  })
+})
+
+describe('todayLabel', () => {
+  const monday = new Date('2026-07-06T12:00:00Z')
+
+  it('capitalizes the weekday in French', () => {
+    expect(todayLabel('fr-FR', monday)).toMatch(/^Lundi\b/)
+  })
+
+  it('keeps the weekday capitalized in English', () => {
+    expect(todayLabel('en-US', monday)).toMatch(/^Monday\b/)
   })
 })
 

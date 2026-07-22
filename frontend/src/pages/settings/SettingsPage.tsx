@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { type Theme, applyTheme, getStoredTheme } from '@/lib/theme'
 import { useTranslation } from 'react-i18next'
+import { SUPPORTED_LOCALES, resolveLocale } from '@/i18n/locales'
 import { useNavigate } from 'react-router'
 import { useAuthStore } from '@/stores/auth-store'
-import { useAppStore, type DateFormat } from '@/stores/app-store'
+import { useAppStore, type DateFormat, type SidebarStyle } from '@/stores/app-store'
+import { useLogout } from '@/features/auth/hooks'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,11 +30,15 @@ import {
   Pencil,
   Shield,
   KeyRound,
+  Link2,
+  ExternalLink,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { api } from '@/lib/api-client'
+import { APP_VERSION } from '@/lib/app-version'
 import { SecuritySection } from './security/SecuritySection'
 import { AccessKeysSection } from './sections/AccessKeysSection'
+import { ConnectedAppsSection } from './sections/ConnectedAppsSection'
 
 // ---------------------------------------------------------------------------
 // Toggle group button (theme / language)
@@ -53,15 +59,15 @@ function ToggleGroup({
   onChange: (value: string) => void
 }) {
   return (
-    <div className="inline-flex items-center rounded-lg bg-muted p-1">
+    <div className="inline-flex items-center rounded-2xl bg-muted p-1">
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
           onClick={() => onChange(opt.value)}
-          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+          className={`inline-flex h-10 min-w-24 items-center justify-center rounded-xl px-8 text-sm font-medium transition-[background-color,color] ${
             value === opt.value
-              ? 'bg-primary text-primary-foreground shadow-sm'
+              ? 'bg-primary text-primary-foreground'
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
@@ -88,7 +94,7 @@ function SectionCard({
   children: React.ReactNode
 }) {
   return (
-    <Card className="rounded-4xl bg-card shadow-md">
+    <Card className="rounded-4xl bg-card">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
           {React.createElement(icon, { className: "size-5 text-muted-foreground" })}
@@ -109,9 +115,9 @@ export function SettingsPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
-  const logout = useAuthStore((s) => s.logout)
+  const logoutMutation = useLogout()
   const setUsername = useAuthStore((s) => s.setUsername)
-  const { dateFormat, setDateFormat } = useAppStore()
+  const { dateFormat, setDateFormat, sidebarStyle, setSidebarStyle } = useAppStore()
 
   // Username editing -------------------------------------------------------
   const [editingUsername, setEditingUsername] = useState(false)
@@ -133,8 +139,8 @@ export function SettingsPage() {
   async function saveUsername() {
     const trimmed = newUsername.trim()
     if (!trimmed || trimmed === user?.username) { setEditingUsername(false); return }
-    if (trimmed.length < 3) { setUsernameError('3 caractères minimum'); return }
-    if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) { setUsernameError('Lettres, chiffres, . _ - uniquement'); return }
+    if (trimmed.length < 3) { setUsernameError(t('settings.usernameTooShort')); return }
+    if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) { setUsernameError(t('settings.usernameInvalidChars')); return }
     setUsernameSaving(true)
     setUsernameError(null)
     try {
@@ -142,7 +148,7 @@ export function SettingsPage() {
       setUsername(trimmed)
       setEditingUsername(false)
     } catch (err: unknown) {
-      setUsernameError(getErrorStatus(err) === 409 ? 'Nom d\'utilisateur déjà pris' : 'Erreur, réessayez')
+      setUsernameError(getErrorStatus(err) === 409 ? t('settings.usernameTaken') : t('common.error'))
     } finally {
       setUsernameSaving(false)
     }
@@ -158,16 +164,20 @@ export function SettingsPage() {
   // Language --------------------------------------------------------------
   const [locale, setLocale] = useState(i18n.language)
 
+  // i18next persists the choice itself (localStorage key "picsou-locale").
   const handleLocaleChange = (lng: string) => {
     i18n.changeLanguage(lng)
-    localStorage.setItem('locale', lng)
     setLocale(lng)
   }
 
   // Logout ----------------------------------------------------------------
+  // Routes through the server-side /auth/logout call (via useLogout), not just
+  // the local zustand flag -- otherwise the session cookies stay valid and
+  // RequireAuth's session-probe silently re-authenticates the user right back in.
   const handleLogout = () => {
-    logout()
-    navigate('/login')
+    logoutMutation.mutate(undefined, {
+      onSuccess: () => navigate('/login'),
+    })
   }
 
   // Theme / locale options
@@ -177,18 +187,23 @@ export function SettingsPage() {
     { value: 'system', label: t('settings.themeSystem') },
   ]
 
-  const localeOptions: ToggleOption[] = [
-    { value: 'fr', label: 'FR' },
-    { value: 'en', label: 'EN' },
-  ]
+  const localeOptions: ToggleOption[] = SUPPORTED_LOCALES.map((l) => ({
+    value: l.code,
+    label: l.label,
+  }))
 
   const dateFormatOptions: ToggleOption[] = [
     { value: 'locale', label: t('settings.dateFormatLocale') },
     { value: 'iso', label: t('settings.dateFormatIso') },
   ]
 
+  const sidebarStyleOptions: ToggleOption[] = [
+    { value: 'current', label: t('settings.sidebarStyleCurrent') },
+    { value: 'classic', label: t('settings.sidebarStyleClassic') },
+  ]
+
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="space-y-6">
       <PageHeader title={t('settings.title')} />
 
       {/* Appearance ------------------------------------------------------- */}
@@ -213,7 +228,7 @@ export function SettingsPage() {
             <Label className="text-sm font-medium">{t('settings.language')}</Label>
             <ToggleGroup
               options={localeOptions}
-              value={locale.startsWith('fr') ? 'fr' : 'en'}
+              value={resolveLocale(locale).code}
               onChange={handleLocaleChange}
             />
           </div>
@@ -225,6 +240,16 @@ export function SettingsPage() {
               options={dateFormatOptions}
               value={dateFormat}
               onChange={(v) => setDateFormat(v as DateFormat)}
+            />
+          </div>
+
+          {/* Sidebar style */}
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium">{t('settings.sidebarStyle')}</Label>
+            <ToggleGroup
+              options={sidebarStyleOptions}
+              value={sidebarStyle}
+              onChange={(v) => setSidebarStyle(v as SidebarStyle)}
             />
           </div>
         </div>
@@ -243,35 +268,35 @@ export function SettingsPage() {
             </Label>
             {editingUsername ? (
               <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
                   <Input
                     value={newUsername}
                     onChange={e => setNewUsername(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') saveUsername(); if (e.key === 'Escape') cancelEditUsername() }}
-                    className="w-44"
+                    className="w-72"
                     autoFocus
                     disabled={usernameSaving}
                   />
-                  <Button size="icon-sm" variant="ghost" onClick={saveUsername} disabled={usernameSaving}>
-                    <Check className="size-4 text-green-600" />
+                  <Button size="icon" variant="outline" onClick={saveUsername} disabled={usernameSaving}>
+                    <Check className="size-4 text-emerald-600" />
                   </Button>
-                  <Button size="icon-sm" variant="ghost" onClick={cancelEditUsername} disabled={usernameSaving}>
+                  <Button size="icon" variant="outline" onClick={cancelEditUsername} disabled={usernameSaving}>
                     <X className="size-4" />
                   </Button>
                 </div>
-                {usernameError && <p className="text-xs text-destructive">{usernameError}</p>}
+                {usernameError && <p className="text-sm text-destructive">{usernameError}</p>}
               </div>
             ) : (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">{user?.username}</span>
-                <Button size="icon-sm" variant="ghost" onClick={startEditUsername}>
-                  <Pencil className="size-3.5" />
+                <Button size="icon" variant="outline" onClick={startEditUsername}>
+                  <Pencil className="size-4" />
                 </Button>
               </div>
             )}
           </div>
           <div className="flex justify-end">
-            <Button variant="destructive" onClick={handleLogout}>
+            <Button variant="destructive" onClick={handleLogout} disabled={logoutMutation.isPending}>
               <LogOut className="mr-2 size-4" />
               {t('settings.logout')}
             </Button>
@@ -297,18 +322,27 @@ export function SettingsPage() {
         <AccessKeysSection />
       </SectionCard>
 
+      {/* Connected apps (OAuth) -------------------------------------------- */}
+      <SectionCard
+        icon={Link2}
+        title={t('connectedApps.sectionTitle')}
+        description={t('connectedApps.sectionDescription')}
+      >
+        <ConnectedAppsSection />
+      </SectionCard>
+
       {/* Family ----------------------------------------------------------- */}
       <SectionCard
         icon={Users}
-        title={t('settings.family', 'Family')}
-        description={t('settings.familyDescription', 'Manage members and sharing settings')}
+        title={t('settings.family')}
+        description={t('settings.familyDescription')}
       >
         <button
           type="button"
           onClick={() => navigate('/settings/family')}
-          className="flex w-full items-center justify-between rounded-lg p-2 text-sm font-medium transition-colors hover:bg-muted"
+          className="flex min-h-10 w-full items-center justify-between rounded-xl bg-muted/70 px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
         >
-          <span>{t('settings.familyManage', 'Manage family members & sharing')}</span>
+          <span>{t('settings.familyManage')}</span>
           <ChevronRight className="size-4 text-muted-foreground" />
         </button>
       </SectionCard>
@@ -323,7 +357,7 @@ export function SettingsPage() {
           <button
             type="button"
             onClick={() => navigate('/admin')}
-            className="flex w-full items-center justify-between rounded-lg p-2 text-sm font-medium transition-colors hover:bg-muted"
+            className="flex min-h-10 w-full items-center justify-between rounded-xl bg-muted/70 px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
           >
             <span>{t('settings.adminButton')}</span>
             <ChevronRight className="size-4 text-muted-foreground" />
@@ -337,19 +371,28 @@ export function SettingsPage() {
         title={t('settings.about')}
         description={t('settings.aboutDescription')}
       >
-        <div className="space-y-3 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Picsou</span>
+        <div className="grid gap-5 text-sm sm:grid-cols-3 sm:items-start">
+          <div className="space-y-1">
+            <p className="text-muted-foreground">{t('settings.application')}</p>
+            <p className="font-medium text-foreground">Picsou</p>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">
+          <div className="space-y-1">
+            <p className="text-muted-foreground">
               {t('settings.version')}
-            </span>
-            <span className="font-medium">1.0.8</span>
+            </p>
+            <p className="font-medium text-foreground">{APP_VERSION}</p>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">GitHub</span>
-            <span className="font-medium">github.com/zoeille/picsou</span>
+          <div className="space-y-1 sm:justify-self-end sm:text-right">
+            <p className="text-muted-foreground">GitHub</p>
+            <a
+              href="https://github.com/zoeille/picsou"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-xl font-medium text-foreground transition-colors hover:text-muted-foreground"
+            >
+              <span className="truncate">github.com/zoeille/picsou</span>
+              <ExternalLink className="size-4 text-muted-foreground" />
+            </a>
           </div>
         </div>
       </SectionCard>

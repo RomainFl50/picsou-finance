@@ -7,6 +7,7 @@ import {
   useRevokeAllSessionsExceptCurrent,
 } from '@/features/mfa/hooks'
 import type { SessionItem } from '@/features/mfa/api'
+import { resolveLocale } from '@/i18n/locales'
 
 export function SessionsList() {
   const { t, i18n } = useTranslation()
@@ -37,7 +38,7 @@ export function SessionsList() {
           <SessionRow
             key={s.id}
             session={s}
-            locale={i18n.language}
+            locale={resolveLocale(i18n.language).intlLocale}
             onRevoke={() => revoke.mutate(s.id)}
             disabled={revoke.isPending && revoke.variables === s.id}
           />
@@ -85,13 +86,13 @@ function SessionRow({
             {prettyUserAgent(session.userAgent) || 'Unknown device'}
           </span>
           {session.current && (
-            <span className="text-[10px] uppercase tracking-wide rounded-full bg-primary/10 text-primary px-2 py-0.5">
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
               {t('settings.sessionsCurrent')}
             </span>
           )}
           {session.trustedFor2fa && (
-            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2 py-0.5">
-              <ShieldCheck size={10} />
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+              <ShieldCheck className="size-3" />
               {t('settings.sessionsTrusted')}
             </span>
           )}

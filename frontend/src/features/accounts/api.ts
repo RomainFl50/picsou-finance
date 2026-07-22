@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { Account, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, RealEstateMetadataRequest, RealEstateMetadata, SecurityInsight, Transaction, TransactionRequest } from '@/types/api'
+import type { Account, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, RealEstateMetadataRequest, RealEstateMetadata, RealizedPnlResponse, SecurityInsight, Transaction, TransactionImportPreviewResponse, TransactionImportRequest, TransactionImportResultResponse, TransactionRequest } from '@/types/api'
 
 export const accountsApi = {
   list: () => api.get<Account[]>('/accounts').then(r => r.data),
@@ -34,11 +34,34 @@ export const accountsApi = {
   addTransaction: (id: number, data: TransactionRequest) =>
     api.post<Transaction>(`/accounts/${id}/transactions`, data).then(r => r.data),
   deleteTransaction: (accountId: number, txId: number) =>
-    api.delete(`/accounts/${accountId}/transactions/${txId}`),
+    api.delete<void>(`/accounts/${accountId}/transactions/${txId}`).then(r => r.data),
   updateTransaction: (accountId: number, txId: number, data: TransactionRequest) =>
     api.put<Transaction>(`/accounts/${accountId}/transactions/${txId}`, data).then(r => r.data),
+  /** Imports the full TR transaction history CSV. Returns a count of rows inserted and skipped (already present). */
+  importTRTransactions: (id: number, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<{ inserted: number; skipped: number }>(`/tr/accounts/${id}/transactions/import-csv`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
   updateHolding: (accountId: number, ticker: string, data: { quantity: number; averageBuyIn?: number }) =>
     api.put<HoldingResponse>(`/accounts/${accountId}/holdings/${ticker}`, data).then(r => r.data),
   deleteHolding: (accountId: number, ticker: string) =>
     api.delete(`/accounts/${accountId}/holdings/${ticker}`),
+  importPreview: (id: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<TransactionImportPreviewResponse>(
+      `/accounts/${id}/transactions/import/preview`, form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ).then(r => r.data)
+  },
+  importExecute: (id: number, data: TransactionImportRequest) =>
+    api.post<TransactionImportResultResponse>(`/accounts/${id}/transactions/import`, data).then(r => r.data),
+  realizedPnl: (id: number) =>
+    api.get<RealizedPnlResponse>(`/accounts/${id}/realized-pnl`).then(r => r.data),
+  listAll: () => api.get<Account[]>('/accounts', { params: { includeHidden: true } }).then(r => r.data),
+  setVisibility: (id: number, hidden: boolean) =>
+    api.put<Account>(`/accounts/${id}/visibility`, { hidden }).then(r => r.data),
 }

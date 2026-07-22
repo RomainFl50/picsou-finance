@@ -1,37 +1,65 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import {
-  LayoutDashboard,
-  Wallet,
-  Target,
-  PieChart,
+  ChevronDown,
   Settings,
-  LogOut,
-  ChevronsUpDown,
   Users,
+  LogOut,
   Shield,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useAuthStore } from '@/stores/auth-store'
-import { useAppStore } from '@/stores/app-store'
-import { LanguageToggle } from './LanguageToggle'
-import { useProfileStore } from '@/stores/profile-store'
+import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { useFamilyMembers } from '@/features/family/hooks'
 import { selectSwitchableMembers } from '@/features/family/members'
+import { useAuthStore } from '@/stores/auth-store'
+import { useAppStore } from '@/stores/app-store'
 import { useLogout } from '@/features/auth/hooks'
-import { useQueryClient } from '@tanstack/react-query'
+import { useProfileStore } from '@/stores/profile-store'
 import { cn } from '@/lib/utils'
 import picsouLogo from '@/assets/horizontal-white-picsou.svg'
+import { NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM } from './sidebar-nav-items'
+
+function AccountMenuFooterItems({
+  isAdmin,
+  onAdminClick,
+  onLogoutClick,
+  logoutPending,
+}: {
+  isAdmin: boolean
+  onAdminClick: () => void
+  onLogoutClick: () => void
+  logoutPending: boolean
+}) {
+  const { t } = useTranslation()
+  return (
+    <>
+      {isAdmin && (
+        <DropdownMenuItem onClick={onAdminClick}>
+          <Shield className="size-4" aria-hidden="true" />
+          <span>{t('nav.admin')}</span>
+        </DropdownMenuItem>
+      )}
+
+      <DropdownMenuItem onClick={onLogoutClick} disabled={logoutPending}>
+        <LogOut className="size-4" aria-hidden="true" />
+        <span>{t('settings.logout')}</span>
+      </DropdownMenuItem>
+    </>
+  )
+}
 
 function NavItem({
   to,
@@ -56,7 +84,7 @@ function NavItem({
       asChild
       variant={isActive ? 'muted' : 'default'}
       className={cn(
-        'rounded-xl px-4 py-3',
+        'min-h-[72px] rounded-xl px-4 py-3',
         isActive && 'bg-muted ring-1 ring-border',
       )}
     >
@@ -65,66 +93,79 @@ function NavItem({
           variant="icon"
           className={cn(
             'flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground',
+            isActive && 'text-foreground',
           )}
         >
-          <Icon className="size-5" fill={isActive ? 'currentColor' : 'none'} />
+          <Icon className="size-5" aria-hidden="true" />
         </ItemMedia>
         <ItemContent>
           <ItemTitle className="text-sm font-semibold">{title}</ItemTitle>
-          <ItemDescription className="text-xs">{description}</ItemDescription>
+          <ItemDescription className="line-clamp-1 text-[11px] leading-4">{description}</ItemDescription>
         </ItemContent>
       </NavLink>
     </Item>
   )
 }
 
-const NAV_ITEMS = [
-  { path: '/', icon: LayoutDashboard, labelKey: 'nav.dashboard', descKey: 'nav.dashboard.desc' },
-  { path: '/accounts', icon: Wallet, labelKey: 'nav.accounts', descKey: 'nav.accounts.desc' },
-  { path: '/goals', icon: Target, labelKey: 'nav.goals', descKey: 'nav.goals.desc' },
-  { path: '/budget', icon: PieChart, labelKey: 'nav.budget', descKey: 'nav.budget.desc' },
-  { path: '/settings', icon: Settings, labelKey: 'nav.settings', descKey: 'nav.settings.desc' },
-] as const
-
 export function AppSidebar() {
   const { t } = useTranslation()
+  const location = useLocation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const user = useAuthStore((s) => s.user)
   const demoMode = useAppStore((s) => s.demoMode)
-  const { activeMemberId, setActiveMember } = useProfileStore()
+  const sidebarStyle = useAppStore((s) => s.sidebarStyle)
+  const activeMemberId = useProfileStore((s) => s.activeMemberId)
+  const setActiveMember = useProfileStore((s) => s.setActiveMember)
+  const canSwitchProfile = !demoMode && user?.role === 'ADMIN'
   const isAdmin = user?.role === 'ADMIN'
-  // `/family/members` is admin-only — never call it for non-admins, or the 403
-  // interceptor bounces the whole app to /error/403 (notably on a member's first login).
-  const { data: familyMembers } = useFamilyMembers({ enabled: isAdmin })
-  const logoutMutation = useLogout()
-  const queryClient = useQueryClient()
-
-  function switchProfile(memberId: number | null) {
-    setActiveMember(memberId)
-    queryClient.invalidateQueries()
-  }
-
-  // Independent members (own activated password) are private — not switchable by the admin.
-  const managedMembers = selectSwitchableMembers(familyMembers ?? [])
-
-  // Resolve active profile display (may differ from logged-in user)
-  const activeManaged = activeMemberId
-    ? managedMembers.find((m) => m.id === activeMemberId)
-    : null
+  const { data: familyMembers = [] } = useFamilyMembers({ enabled: canSwitchProfile })
+  const switchableMembers = selectSwitchableMembers(familyMembers)
+  const activeMember = switchableMembers.find((member) => member.id === activeMemberId)
   const displayName = demoMode
     ? 'Demo'
-    : activeManaged?.displayName ?? user?.displayName ?? ''
-  const displayColor = activeManaged?.avatarColor ?? '#6366f1'
+    : user?.displayName ?? ''
+  const activeDisplayName = activeMember?.displayName ?? (activeMemberId ? t('nav.unknownProfile') : displayName)
+  const activeDescription = activeMemberId ? t('nav.managedProfile') : demoMode ? 'Demo' : t('nav.account')
   const initial = displayName.charAt(0).toUpperCase()
+  const activeInitial = activeDisplayName.charAt(0).toUpperCase()
+  const activeProfileValue = activeMemberId == null ? 'own' : `member-${activeMemberId}`
+  const settingsActive = location.pathname.startsWith('/settings')
+  const logoutMutation = useLogout()
+  const isClassic = sidebarStyle === 'classic'
+  const navItems = isClassic ? [...NAV_ITEMS, CLASSIC_SETTINGS_NAV_ITEM] : NAV_ITEMS
+
+  function handleProfileValueChange(value: string) {
+    const nextMemberId = value === 'own'
+      ? null
+      : Number(value.replace('member-', ''))
+
+    if (nextMemberId !== null && !Number.isFinite(nextMemberId)) return
+    if (nextMemberId === activeMemberId) return
+
+    setActiveMember(nextMemberId)
+    void queryClient.invalidateQueries()
+  }
 
   return (
-    <nav className="hidden md:flex h-fit max-h-[calc(100vh-2rem)] w-60 shrink-0 flex-col bg-background px-3 py-4 rounded-xl">
+    <nav
+      className={cn(
+        'hidden shrink-0 flex-col rounded-xl bg-background px-3 py-4 md:flex',
+        isClassic ? 'h-fit max-h-[calc(100vh-2rem)] w-60' : 'h-[calc(100vh-2rem)] w-72',
+      )}
+    >
       {/* Logo */}
-      <img src={picsouLogo} alt="Picsou" className="h-7 w-auto opacity-90 brightness-0 dark:invert" />
+      <img
+        src={picsouLogo}
+        alt="Picsou"
+        className={cn(
+          'h-7 w-auto opacity-90 brightness-0 dark:invert',
+          isClassic ? undefined : 'mb-4 self-start px-4',
+        )}
+      />
 
-      {/* Nav items — evenly distributed */}
-      <div className="flex flex-1 flex-col justify-evenly gap-3 mt-[47px]">
-        {NAV_ITEMS.map((item) => (
+      <div className={cn('flex flex-col gap-3', isClassic && 'mt-[47px] flex-1 justify-evenly')}>
+        {navItems.map((item) => (
           <NavItem
             key={item.path}
             to={item.path}
@@ -139,95 +180,170 @@ export function AppSidebar() {
         <NavItem
           to="/family"
           icon={Users}
-          title={t('nav.family', 'Family')}
-          description={t('nav.family.desc', 'Shared overview')}
+          title={t('nav.family')}
+          description={t('nav.family.desc')}
         />
       </div>
 
-      {/* Language toggle — always visible, next to theme (in /settings > Appearance) */}
-      <div className="mt-3 flex justify-center">
-        <LanguageToggle />
-      </div>
-
-      {/* User dropdown */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Item asChild variant="default" className="mt-3 rounded-xl px-4 py-3 cursor-pointer hover:bg-muted transition-colors">
-            <button type="button">
-              <Avatar className="size-10 shrink-0 rounded-lg">
-                <AvatarFallback
-                  style={activeManaged ? { backgroundColor: displayColor } : undefined}
-                  className={cn('text-sm font-bold', activeManaged ? 'text-white' : 'bg-muted text-muted-foreground')}
-                >
-                  {initial}
-                </AvatarFallback>
-              </Avatar>
-              <ItemContent>
-                <ItemTitle className="text-sm font-semibold">{displayName}</ItemTitle>
-                <ItemDescription className="text-xs">
-                  {demoMode ? 'Demo' : activeManaged ? t('nav.managedProfile', 'Managed profile') : t('nav.account')}
-                </ItemDescription>
-              </ItemContent>
-              <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
-            </button>
-          </Item>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="bottom" align="start" sideOffset={4} className="w-52">
-          <DropdownMenuLabel className="font-normal">
-            <div className="flex flex-col gap-0.5">
-              <p className="text-sm font-medium leading-none">{displayName}</p>
-              {demoMode && <p className="text-xs text-muted-foreground">Demo mode</p>}
-            </div>
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {isAdmin && managedMembers.length > 0 && (
-            <>
-              <DropdownMenuLabel className="text-xs text-muted-foreground">
-                {t('nav.switchProfile', 'Switch profile')}
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                onClick={() => switchProfile(null)}
-                className={cn(activeMemberId === null && 'bg-muted font-medium')}
+      {isClassic ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Item
+              asChild
+              variant="default"
+              className="mt-3 min-h-[72px] rounded-xl px-4 py-3 text-left transition-colors hover:bg-muted"
+            >
+              <button
+                type="button"
+                aria-label={canSwitchProfile ? t('nav.switchProfile') : t('nav.account')}
               >
-                <Avatar className="mr-2 size-5 rounded">
-                  <AvatarFallback className="bg-muted text-[9px] text-muted-foreground">
-                    {(user?.displayName ?? '').charAt(0).toUpperCase()}
+                <Avatar className="size-10 shrink-0 rounded-lg">
+                  <AvatarFallback
+                    className={cn(
+                      'text-sm font-bold',
+                      activeMember ? 'text-primary-foreground' : 'bg-muted text-muted-foreground',
+                    )}
+                    style={activeMember ? { backgroundColor: activeMember.avatarColor } : undefined}
+                  >
+                    {activeInitial}
                   </AvatarFallback>
                 </Avatar>
-                <span className="truncate">{user?.displayName ?? ''}</span>
-              </DropdownMenuItem>
-              {managedMembers.map((m) => (
-                <DropdownMenuItem
-                  key={m.id}
-                  onClick={() => switchProfile(m.id)}
-                  className={cn(activeMemberId === m.id && 'bg-muted font-medium')}
-                >
-                  <Avatar className="mr-2 size-5 rounded">
-                    <AvatarFallback style={{ backgroundColor: m.avatarColor }} className="text-[9px] text-white">
-                      {m.displayName.charAt(0)}
+                <ItemContent className="min-w-0">
+                  <ItemTitle className="max-w-40 truncate text-sm font-semibold">{activeDisplayName}</ItemTitle>
+                  <ItemDescription className="text-xs">{activeDescription}</ItemDescription>
+                </ItemContent>
+                <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </Item>
+          </DropdownMenuTrigger>
+
+          <DropdownMenuContent side="top" align="start" className="w-64">
+            <DropdownMenuLabel className="font-normal">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-sm font-medium leading-none">{displayName}</p>
+                {demoMode && <p className="text-xs text-muted-foreground">{t('auth.demoMode')}</p>}
+              </div>
+            </DropdownMenuLabel>
+            {canSwitchProfile && switchableMembers.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('nav.switchProfile')}
+                </DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={activeProfileValue} onValueChange={handleProfileValueChange}>
+                  <DropdownMenuRadioItem value="own">
+                    <Avatar className="size-6 shrink-0 rounded-md">
+                      <AvatarFallback className="bg-muted text-[10px] font-bold text-muted-foreground">
+                        {initial}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="truncate">{displayName}</span>
+                  </DropdownMenuRadioItem>
+                  {switchableMembers.map((member) => (
+                    <DropdownMenuRadioItem key={member.id} value={`member-${member.id}`}>
+                      <span
+                        className="size-6 shrink-0 rounded-md"
+                        style={{ backgroundColor: member.avatarColor }}
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">{member.displayName}</span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </>
+            )}
+
+            <DropdownMenuSeparator />
+
+            <AccountMenuFooterItems
+              isAdmin={isAdmin}
+              onAdminClick={() => navigate('/admin')}
+              onLogoutClick={() => logoutMutation.mutate()}
+              logoutPending={logoutMutation.isPending}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <div className="mt-auto flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Item
+                asChild
+                variant="default"
+                className="min-h-[72px] flex-1 rounded-xl px-4 py-3 text-left transition-colors hover:bg-muted"
+              >
+                <button type="button" aria-label={t('nav.account')}>
+                  <Avatar className="size-10 shrink-0 rounded-lg">
+                    <AvatarFallback
+                      className={cn(
+                        'text-sm font-bold',
+                        activeMember ? 'text-primary-foreground' : 'bg-muted text-muted-foreground',
+                      )}
+                      style={activeMember ? { backgroundColor: activeMember.avatarColor } : undefined}
+                    >
+                      {activeInitial}
                     </AvatarFallback>
                   </Avatar>
-                  <span className="truncate">{m.displayName}</span>
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-            </>
-          )}
-          {isAdmin && (
-            <>
-              <DropdownMenuItem onClick={() => navigate('/admin')}>
-                <Shield className="mr-2 size-4" />
-                {t('nav.admin')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          )}
-          <DropdownMenuItem onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}>
-            <LogOut className="mr-2 size-4" />
-            {t('settings.logout')}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+                  <ItemContent className="min-w-0">
+                    <ItemTitle className="max-w-28 truncate text-sm font-semibold">{activeDisplayName}</ItemTitle>
+                    <ItemDescription className="truncate text-xs">{activeDescription}</ItemDescription>
+                  </ItemContent>
+                  <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </button>
+              </Item>
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent side="top" align="start" className="w-64">
+              {canSwitchProfile && switchableMembers.length > 0 && (
+                <>
+                  <DropdownMenuRadioGroup value={activeProfileValue} onValueChange={handleProfileValueChange}>
+                    <DropdownMenuRadioItem value="own">
+                      <Avatar className="size-8 shrink-0 rounded-lg">
+                        <AvatarFallback className="bg-muted text-xs font-bold text-muted-foreground">
+                          {initial}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{displayName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{t('nav.account')}</p>
+                      </div>
+                    </DropdownMenuRadioItem>
+
+                    {switchableMembers.map((member) => (
+                      <DropdownMenuRadioItem key={member.id} value={`member-${member.id}`}>
+                        <span
+                          className="size-8 shrink-0 rounded-lg"
+                          style={{ backgroundColor: member.avatarColor }}
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{member.displayName}</p>
+                          <p className="truncate text-xs text-muted-foreground">{t('nav.managedProfile')}</p>
+                        </div>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+
+                  <DropdownMenuSeparator />
+                </>
+              )}
+
+              <AccountMenuFooterItems
+                isAdmin={isAdmin}
+                onAdminClick={() => navigate('/admin')}
+                onLogoutClick={() => logoutMutation.mutate()}
+                logoutPending={logoutMutation.isPending}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button variant="ghost" size="icon" asChild className={cn(settingsActive && 'bg-muted text-foreground')}>
+            <NavLink to="/settings" aria-label={t('nav.settings')}>
+              <Settings className="size-4" aria-hidden="true" />
+            </NavLink>
+          </Button>
+        </div>
+      )}
     </nav>
   )
 }

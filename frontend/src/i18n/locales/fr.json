@@ -1,6 +1,7 @@
 {
   "common": {
     "loading": "Chargement...",
+    "add": "Ajouter",
     "save": "Enregistrer",
     "cancel": "Annuler",
     "delete": "Supprimer",
@@ -9,6 +10,7 @@
     "confirm": "Confirmer",
     "confirmTypePrompt": "Tapez {{phrase}} pour confirmer.",
     "errorTitle": "Erreur",
+    "optional": "optionnel",
     "error": "Une erreur est survenue. Veuillez réessayer.",
     "errors": {
       "unauthorized": "Votre session a expiré. Veuillez vous reconnecter.",
@@ -29,11 +31,12 @@
     "today": "Aujourd'hui",
     "currency": "EUR",
     "locale": "fr-FR",
-    "category": "Catégorie"
+    "category": "Catégorie",
+    "done": "Terminé"
   },
   "nav": {
     "dashboard": "Tableau de bord",
-    "dashboard.desc": "Vue d'ensemble & patrimoine",
+    "dashboard.desc": "Vue d'ensemble",
     "accounts": "Comptes",
     "accounts.desc": "Soldes & transactions",
     "goals": "Objectifs",
@@ -43,7 +46,12 @@
     "sync": "Synchronisation",
     "settings": "Paramètres",
     "settings.desc": "Préférences & compte",
+    "family": "Famille",
+    "family.desc": "Vue partagée",
     "account": "Mon compte",
+    "managedProfile": "Profil géré",
+    "switchProfile": "Changer de profil",
+    "unknownProfile": "Profil inconnu",
     "logout": "Déconnexion",
     "admin": "Administration",
     "admin.desc": "Réglages de l'instance",
@@ -51,11 +59,19 @@
   },
   "auth": {
     "login": "Connexion",
+    "loginTagline": "Picsou",
     "username": "Nom d'utilisateur",
+    "usernameTooShort": "3 caractères minimum.",
+    "usernameInvalidChars": "Utilisez uniquement lettres, chiffres, points, tirets et underscores.",
+    "usernameTaken": "Ce nom d'utilisateur est déjà pris.",
     "password": "Mot de passe",
     "loginButton": "Se connecter",
     "loggingIn": "Connexion...",
     "error": "Identifiants invalides",
+    "networkError": "Impossible de contacter le serveur. Vérifiez la connexion, puis réessayez.",
+    "loginGenericError": "Impossible de se connecter. Veuillez réessayer.",
+    "showPassword": "Afficher le mot de passe",
+    "hidePassword": "Masquer le mot de passe",
     "demoMode": "Mode démo",
     "demoModeDesc": "Données fictives pour démonstration",
     "rememberMe": "Se souvenir de moi",
@@ -72,7 +88,15 @@
     "mfaVerifying": "Vérification...",
     "mfaInvalidCode": "Code incorrect",
     "mfaTooManyAttempts": "Trop de tentatives, réessaie dans quelques minutes",
-    "mfaSessionExpired": "Session de vérification expirée, reconnecte-toi"
+    "mfaSessionExpired": "Session de vérification expirée, reconnecte-toi",
+    "mfaGenericError": "Impossible de vérifier le code. Veuillez réessayer.",
+    "validation": {
+      "usernameTooShort": "Le nom d'utilisateur doit contenir au moins 3 caractères.",
+      "usernameTooLong": "Le nom d'utilisateur doit contenir 50 caractères maximum.",
+      "usernameFormat": "Utilisez uniquement des lettres, des chiffres, des points, des tirets bas ou des tirets.",
+      "passwordTooShort": "Le mot de passe doit contenir au moins 8 caractères.",
+      "passwordTooLong": "Le mot de passe doit contenir 128 caractères maximum."
+    }
   },
   "dashboard": {
     "title": "Tableau de bord",
@@ -82,8 +106,10 @@
     "syncAccounts": "Synchroniser",
     "invested": "Capital investi",
     "portfolioPerformance": "performance portefeuille",
+    "netWorthChange": "Gain / perte",
     "marketsClosed": "Marchés fermés — aucune donnée intraday disponible",
     "distribution": "Répartition",
+    "accountsLabel": "comptes",
     "ranges": {
       "24H": "24H",
       "7D": "7J",
@@ -113,7 +139,14 @@
     "totalAssets": "Total des actifs",
     "liabilities": "Dettes",
     "monthlyPayment": "Mensualité totale",
-    "loanParamsUnconfigured": "Paramètres non renseignés"
+    "loanParamsUnconfigured": "Paramètres non renseignés",
+    "evolution": {
+      "net": "Évolution du patrimoine net",
+      "gross": "Évolution du patrimoine brut",
+      "financial": "Évolution du patrimoine financier"
+    },
+    "liabilitiesTitle": "Passifs",
+    "liabilitiesDescription": "Dette restante par compte"
   },
   "transactions": {
     "detail": "Détail de la transaction",
@@ -138,16 +171,40 @@
     "neverSynced": "Jamais synchronisé",
     "holdings": "Positions",
     "transactions": "Transactions",
+    "addTransaction": "Ajouter une transaction",
+    "editTransaction": "Modifier la transaction",
+    "transactionDate": "Date",
+    "buy": "Achat",
+    "sell": "Vente",
+    "deposit": "Dépôt",
+    "withdrawal": "Retrait",
+    "description": "Description",
+    "amount": "Montant",
+    "tickerOrIsin": "Ticker ou ISIN",
+    "tickerOrIsinPlaceholder": "IWDA.AS, IE00B4L5Y983, BTC...",
+    "assetNamePlaceholder": "Ex. : iShares Core MSCI World",
     "history": "Historique",
     "priceLive": "Prix en direct",
     "priceStale": "Prix datant de {{time}}",
     "manual": "Manuel",
     "allTypes": "Tous les types",
+    "accountName": "Nom du compte",
+    "accountType": "Type de compte",
+    "provider": "Établissement",
+    "ticker": "Ticker",
+    "color": "Couleur",
     "total": "Total",
     "currentBalance": "Solde actuel",
     "tabOverview": "Aperçu",
     "snapshots": "Relevés mensuels",
     "changeCategory": "Changer la catégorie",
+    "importCsvTR": "+ Ajouter CSV (TR)",
+    "importSuccess": "{{count}} transaction importée",
+    "importSuccess_other": "{{count}} transactions importées",
+    "importSuccessWithSkipped": "{{count}} transaction importée ({{skipped}} déjà présente)",
+    "importSuccessWithSkipped_other": "{{count}} transactions importées ({{skipped}} déjà présentes)",
+    "importAlreadyDone": "Aucune nouvelle transaction — le CSV est déjà importé.",
+    "importError": "Erreur lors de l'import : {{message}}",
     "uncategorized": "Non catégorisé",
     "addSnapshot": "Enregistrer",
     "monthlyHistory": "Solde en fin de mois",
@@ -162,7 +219,8 @@
       "CRYPTO": "Crypto",
       "REAL_ESTATE": "Immobilier",
       "DEBTS": "Dettes"
-    }
+    },
+    "fees": "Frais"
   },
   "accountTypes": {
     "checking": "Compte courant",
@@ -239,8 +297,11 @@
   },
   "holdings": {
     "totalValue": "Valeur totale",
+    "ticker": "Ticker",
+    "name": "Nom",
     "unitPrice": "Prix unitaire",
     "pnl": "Plus-value / Moins-value",
+    "pnlPercent": "Plus-value / Moins-value %",
     "quantity": "Quantité",
     "account": "Compte",
     "lastUpdated": "Dernière mise à jour",
@@ -250,6 +311,7 @@
     "evolution": "Évolution",
     "capitalInvested": "Capital investi",
     "avgBuyIn": "Prix moyen d'achat",
+    "editTitle": "Modifier {{ticker}}",
     "perShare": "/ part",
     "insight": {
       "title": "Insight",
@@ -645,6 +707,7 @@
       "title": "Banques",
       "search": "Rechercher une banque",
       "searchPlaceholder": "Ex: BNP Paribas...",
+      "searchError": "Impossible de rechercher les banques pour le moment.",
       "connected": "Connexions actives",
       "noConnections": "Aucune connexion bancaire",
       "connect": "Connecter",
@@ -661,7 +724,7 @@
       "title": "Trade Republic",
       "phone": "Numéro de téléphone",
       "pin": "Code PIN",
-      "tan": "Code TAN",
+      "tan": "Code de vérification",
       "connect": "Connecter",
       "sync": "Synchroniser",
       "importCsv": "Importer un CSV",
@@ -673,7 +736,9 @@
         "tooManyAttempts": "Trop de tentatives. Réessayez dans quelques minutes.",
         "invalidPhoneNumber": "Numéro de téléphone invalide.",
         "invalidPin": "Code PIN incorrect.",
+        "invalidTan": "Code de vérification incorrect ou expiré. Utilisez le dernier code reçu, ou relancez l'étape pour en recevoir un nouveau.",
         "authenticationFailed": "Échec de l'authentification Trade Republic.",
+        "serviceUnavailable": "Le service Trade Republic local n'est pas disponible. Relancez les serveurs puis réessayez.",
         "serverError": "Erreur serveur Trade Republic. Réessayez.",
         "phoneNumberRequired": "Numéro de téléphone requis.",
         "pinRequired": "Code PIN requis.",
@@ -739,6 +804,11 @@
       "noWallets": "Aucun wallet suivi",
       "lastSync": "Dernière sync"
     },
+    "visibility": {
+      "title": "Comptes",
+      "description": "Choisis quels comptes apparaissent dans l'application. Un compte masqué continue d'être synchronisé normalement — il est juste retiré de l'affichage.",
+      "manualGroup": "Manuel"
+    },
     "finary": {
       "title": "Finary",
       "uploadFile": "Importer un fichier Finary (.xlsx)",
@@ -776,7 +846,11 @@
       "deleteConnection": "Déconnecter",
       "deleteConnectionConfirm": "Supprimer les identifiants Finary stockés ? Les comptes déjà importés seront conservés.",
       "newAccounts": "Nouveaux comptes détectés",
-      "allAccountsMapped": "Tous les comptes déjà mappés, synchronisation..."
+      "accountsSyncedToast": "Comptes synchronisés : {{count}}",
+      "allAccountsMapped": "Tous les comptes déjà mappés, synchronisation...",
+      "serviceUnavailable": "Le service Finary est temporairement indisponible. Réessayez dans quelques minutes.",
+      "syncFailed": "La synchronisation Finary a échoué",
+      "authFailed": "Identifiants Finary invalides. Vérifiez votre email et mot de passe."
     },
     "all": {
       "title": "Synchroniser les comptes",
@@ -828,16 +902,24 @@
     "dateFormat": "Format de date",
     "dateFormatLocale": "Localisé",
     "dateFormatIso": "JJ-MM-AAAA",
+    "sidebarStyle": "Style de sidebar",
+    "sidebarStyleCurrent": "Actuel",
+    "sidebarStyleClassic": "Classique",
     "account": "Compte",
     "accountDescription": "Gérer votre compte",
     "username": "Nom d'utilisateur",
     "logout": "Se déconnecter",
+    "logoutError": "La déconnexion a échoué. Veuillez réessayer.",
     "about": "À propos",
     "aboutDescription": "Informations sur l'application",
+    "application": "Application",
     "version": "Version",
     "adminSection": "Administration",
     "adminDescription": "Gérer les réglages de l'instance Picsou",
     "adminButton": "Ouvrir l'administration",
+    "family": "Famille",
+    "familyDescription": "Gérer les membres et les paramètres de partage",
+    "familyManage": "Gérer les membres et les partages",
     "security": "Sécurité",
     "securityDescription": "Authentification à deux facteurs et appareils de confiance",
     "mfaStatus": "Authentification à deux facteurs",
@@ -971,8 +1053,81 @@
       "sync_trigger": {
         "label": "Synchronisation",
         "desc": "Rafraîchir les connexions bancaires, crypto et courtier existantes"
+      },
+      "budget_categories-read": {
+        "label": "Catégories budgétaires",
+        "desc": "Voir les catégories budgétaires (revenus, dépenses, virements)"
+      },
+      "budget_rules-read": {
+        "label": "Règles de catégorisation",
+        "desc": "Voir les règles de catégorisation automatique des transactions"
+      },
+      "budget_transactions-read": {
+        "label": "Transactions budgétées",
+        "desc": "Voir les transactions et leur catégorie"
+      },
+      "budget_recurring-read": {
+        "label": "Abonnements récurrents",
+        "desc": "Voir les abonnements, prélèvements et salaires détectés"
+      },
+      "budget_envelopes-read": {
+        "label": "Enveloppes budgétaires",
+        "desc": "Voir les enveloppes budgétaires et leur progression"
+      },
+      "budget_dashboard-read": {
+        "label": "Tableau de bord budget",
+        "desc": "Voir le flux de trésorerie, le top des catégories et les abonnements à venir"
+      },
+      "oauth2_discover": {
+        "label": "Découverte OAuth2",
+        "desc": "Consulter les informations publiques du serveur d'autorisation"
+      },
+      "oauth2_session-status": {
+        "label": "Statut de session",
+        "desc": "Consulter le statut et les permissions de la session en cours"
+      },
+      "budget_categories-write": {
+        "label": "Catégories budgétaires",
+        "desc": "Créer, modifier et archiver des catégories budgétaires"
+      },
+      "budget_rules-write": {
+        "label": "Règles de catégorisation",
+        "desc": "Créer, modifier et supprimer des règles de catégorisation"
+      },
+      "budget_transactions-write": {
+        "label": "Transactions budgétées",
+        "desc": "Modifier la catégorie des transactions"
+      },
+      "budget_envelopes-write": {
+        "label": "Enveloppes budgétaires",
+        "desc": "Créer, modifier et supprimer des enveloppes budgétaires"
       }
     }
+  },
+  "oauthConsent": {
+    "title": "Autoriser {{app}} à accéder à tes données Picsou ?",
+    "titleGeneric": "Connecter une application",
+    "description": "Vérifie les permissions ci-dessous avant d'autoriser cette application à se connecter. Tu peux révoquer l'accès à tout moment depuis les Réglages.",
+    "loading": "Chargement de la demande…",
+    "scopesIntro": "Cette application demande les permissions suivantes :",
+    "noScopes": "Cette application ne demande aucune permission.",
+    "missingParams": "Ce lien ne contient pas les informations nécessaires. Relance la connexion depuis l'application.",
+    "error": "Impossible de charger cette demande de connexion. Elle a peut-être expiré — relance-la depuis l'application.",
+    "approve": "Autoriser",
+    "deny": "Refuser"
+  },
+  "connectedApps": {
+    "sectionTitle": "Applications connectées",
+    "sectionDescription": "Applications tierces autorisées à accéder à tes données via MCP par OAuth",
+    "loading": "Chargement…",
+    "empty": "Aucune application connectée.",
+    "issued": "Connectée {{value}}",
+    "lastUsed": "Dernière utilisation {{value}}",
+    "lastUsedNever": "Jamais utilisée",
+    "revoke": "Révoquer",
+    "revokeTitle": "Révoquer l'accès de cette application ?",
+    "revokeDescription": "Cette application perd immédiatement l'accès à tes données. Tu pourras la reconnecter plus tard depuis l'application.",
+    "error": "Impossible de révoquer l'accès. Réessaye."
   },
   "admin": {
     "title": "Administration",
@@ -1116,6 +1271,38 @@
     "crashDesc": "Une erreur inattendue s'est produite. Veuillez recharger la page.",
     "reload": "Recharger la page"
   },
+  "family": {
+    "dashboard": {
+      "title": "Famille",
+      "sharedNetWorth": "Patrimoine partagé",
+      "sharedAccounts": "Comptes partagés",
+      "noSharedAccounts": "Aucun compte partagé pour l'instant.",
+      "sharedGoals": "Objectifs partagés",
+      "noSharedGoals": "Aucun objectif partagé pour l'instant.",
+      "contributions": "Contributions"
+    },
+    "settings": {
+      "title": "Famille",
+      "members": "Membres de la famille",
+      "membersDesc": "Ajoutez et gérez les membres et les profils gérés.",
+      "you": "vous",
+      "memberIndependent": "Compte indépendant",
+      "memberPending": "Activation en attente",
+      "memberManaged": "Profil géré",
+      "memberAdmin": "Administrateur",
+      "createLogin": "Créer l'accès",
+      "regenerateLink": "Régénérer le lien",
+      "activationLink": "Lien d'activation à copier et partager :",
+      "memberName": "Nom du membre",
+      "deleteMemberTitle": "Supprimer le membre",
+      "deleteMemberWarning": "Cela supprime définitivement {{name}}, son accès et toutes ses données (comptes, objectifs, synchronisations). Cette action est irréversible.",
+      "shareAccounts": "Partager des comptes",
+      "shareGoals": "Partager des objectifs",
+      "shareNone": "Privé",
+      "shareAll": "Tout partager",
+      "shareManual": "Sélectionner"
+    }
+  },
   "setup": {
     "a11y": {
       "skipToContent": "Aller au contenu principal"
@@ -1146,7 +1333,6 @@
       "안녕하세요"
     ],
     "intro": {
-      "surtitle": "BIENVENUE",
       "title": "Bienvenue sur Picsou.",
       "subtitle": "On vous installe ça en 2 minutes.",
       "cta": "C'est parti",
@@ -1155,28 +1341,29 @@
       "skipAria": "Passer l'animation d'accueil"
     },
     "admin": {
-      "surtitle": "VOTRE COMPTE",
       "title": "Créez votre compte administrateur",
       "subtitle": "C'est le premier — et seul obligatoire — compte sur Picsou. Vous pourrez inviter d'autres personnes depuis les Réglages.",
       "username": "Nom d'utilisateur",
-      "usernameHint": "Lettres, chiffres, point, tiret bas, tiret.",
+      "usernameHint": "Choisissez un nom d'utilisateur d'au moins 3 caractères.",
       "password": "Mot de passe",
-      "passwordHint": "Au moins 8 caractères.",
+      "passwordHint": "Choisissez un mot de passe d'au moins 8 caractères.",
       "displayName": "Nom affiché",
-      "displayNameHint": "Comment votre prénom apparaîtra dans l'application.",
+      "displayNameHint": "Ce nom sera affiché dans l'application.",
       "avatarColor": "Couleur d'avatar",
       "avatarColorInvalid": "Choisissez l'une des couleurs proposées.",
       "cta": "Créer le compte",
       "creating": "Création...",
+      "submitError": "Impossible de créer le compte. Réessayez.",
+      "showPassword": "Afficher le mot de passe",
+      "hidePassword": "Masquer le mot de passe",
       "strength": {
-        "weak": "Faible",
-        "fair": "Correct",
-        "good": "Bon",
-        "strong": "Solide"
+        "weak": "La sécurité du mot de passe est faible.",
+        "fair": "La sécurité du mot de passe est correcte.",
+        "good": "La sécurité du mot de passe est bonne.",
+        "strong": "La sécurité du mot de passe est solide."
       }
     },
     "security": {
-      "surtitle": "SÉCURITÉ",
       "title": "Paramètres de sécurité",
       "subtitle": "Nous avons pré-rempli tout ça à partir de votre connexion actuelle. Vous pourrez ajuster depuis les Réglages plus tard.",
       "originsLabel": "Origines autorisées",
@@ -1188,10 +1375,10 @@
       "secureCookiesLabel": "Cookies sécurisés",
       "secureCookiesHint": "Laissez activé si Picsou est servi en HTTPS.",
       "cta": "Continuer",
-      "saving": "Enregistrement..."
+      "saving": "Enregistrement...",
+      "submitError": "Impossible d'enregistrer les paramètres de sécurité. Réessayez."
     },
     "integrations": {
-      "surtitle": "INTÉGRATIONS",
       "title": "Choisissez vos intégrations",
       "subtitle": "Activez ce qui vous intéresse maintenant. Vous pourrez changer depuis Réglages → Intégrations.",
       "continue": "Continuer",
@@ -1229,7 +1416,6 @@
       }
     },
     "enablebanking": {
-      "surtitle": "ENABLE BANKING",
       "substep": "Étape {{current}} sur {{total}} — Enable Banking",
       "skip": "Ignorer cette intégration",
       "back": "Retour",
@@ -1304,7 +1490,6 @@
       }
     },
     "bourso": {
-      "surtitle": "SIDECAR BOURSOBANK",
       "title": "Vérification du sidecar",
       "body": "Picsou est livré avec un conteneur bourso-auth qui synchronise vos comptes BoursoBank. On va juste vérifier qu'il répond.",
       "pinging": "Vérification du sidecar...",
@@ -1318,7 +1503,6 @@
       "skip": "Ignorer pour l'instant"
     },
     "tr": {
-      "surtitle": "TRADE REPUBLIC",
       "title": "Trade Republic est prêt.",
       "body": "Rien à configurer ici — vous vous connecterez avec vos identifiants Trade Republic au moment d'ajouter le compte dans Picsou.",
       "tip": "Une fois l'installation finie, allez dans Comptes → Ajouter un compte → Trade Republic.",
@@ -1334,7 +1518,6 @@
       "skip": "Ne pas activer Revolut"
     },
     "finary": {
-      "surtitle": "FINARY",
       "title": "Finary est prêt.",
       "body": "Rien à configurer maintenant — vous vous connecterez avec votre compte Finary au moment de l'ajouter dans Picsou. Le TOTP est géré à l'ajout si votre compte en requiert un.",
       "tip": "Une fois l'installation finie, allez dans Comptes → Ajouter un compte → Finary.",
@@ -1342,17 +1525,16 @@
       "skip": "Ne pas activer Finary"
     },
     "crypto": {
-      "surtitle": "ÉCHANGES CRYPTO",
       "title": "Chiffrez vos clés API d'exchange",
       "body": "Vos clés API Binance / Kraken / Coinbase sont chiffrées au repos. Picsou peut générer la clé de chiffrement pour vous — elle reste sur votre disque et n'est jamais transmise.",
       "generateCta": "Générer une clé pour moi",
       "generating": "Génération...",
-      "existed": "Votre clé de chiffrement existe déjà sur le disque — rien à faire.",
+      "existed": "Votre clé de chiffrement est déjà configurée — rien à faire.",
       "created": "Clé de chiffrement générée.",
-      "pathLabel": "Stockée à",
+      "pathLabel": "Source",
       "continue": "Continuer",
-      "skip": "Ignorer pour l'instant",
-      "error": "Impossible d'écrire la clé de chiffrement. Regardez les logs du conteneur."
+      "skip": "Ne pas activer les clés d'échange",
+      "error": "Impossible de préparer la clé de chiffrement. Regardez les logs du serveur."
     },
     "complete": {
       "title": "Picsou est prêt.",
@@ -1366,26 +1548,6 @@
     }
   },
   "pockets": {
-    "title": "Pockets Revolut",
-    "onboardingTitle": "Nommer vos pockets Revolut",
-    "onboardingDescription": "Des pockets Revolut ont été détectées. Donnez-leur un nom pour les reconnaître facilement.",
-    "transfersTitle": "Virements reçus",
-    "namePlaceholder": "Nom de la pocket (ex : Vacances)",
-    "allocatedLabel": "Alloué",
-    "allocatedTooltip": "Total transféré — pas le solde réel. Les dépenses internes de la pocket ne sont pas synchronisées via PSD2.",
-    "csvDropzone": "Déposez un export CSV Revolut pour pré-remplir les noms",
-    "csvDropzoneActive": "Relâchez pour analyser",
-    "csvDropzoneHint": "Le CSV est utilisé uniquement pour suggérer des noms — aucune dépense n'est importée.",
-    "csvBrowse": "Parcourir",
-    "csvError": "Impossible d'analyser le CSV. Vérifiez que c'est un export Revolut valide.",
-    "csvAmbiguous": "Suggestion incertaine — confirmez manuellement",
-    "csvSuggestedLabel": "Suggestion CSV",
-    "saveNames": "Enregistrer les noms",
-    "skipForNow": "Plus tard",
-    "unnamedPocketsBanner": "{{count}} pocket Revolut non nommée",
-    "unnamedPocketsBanner_other": "{{count}} pockets Revolut non nommées",
-    "nameYourPockets": "Nommer les pockets",
-    "pocketOf": "Pocket de {{walletName}}",
     "subAccountsCount": "{{count}} pocket",
     "subAccountsCount_other": "{{count}} pockets"
   },
@@ -1421,5 +1583,50 @@
     "suggestionsBanner_other": "{{count}} livrets à configurer",
     "configureSavings": "Configurer",
     "uncertain": "Classification incertaine — à vérifier"
+  },
+  "import": {
+    "importCsv": "Importer CSV",
+    "title": "Importer des transactions depuis un CSV",
+    "uploadHint": "Glissez-déposez un fichier CSV ici, ou choisissez-en un",
+    "chooseFile": "Choisir un fichier",
+    "mapColumns": "Associer les colonnes",
+    "delimiter": "Séparateur",
+    "delimiterComma": "Virgule (,)",
+    "delimiterSemicolon": "Point-virgule (;)",
+    "delimiterTab": "Tabulation",
+    "decimal": "Séparateur décimal",
+    "dateFormat": "Format de date",
+    "feesIncluded": "Les frais sont déjà inclus dans le montant",
+    "preview": "Aperçu",
+    "rowsTotal": "{{count}} lignes",
+    "none": "— aucune —",
+    "back": "Retour",
+    "import": "Importer",
+    "rowsImported": "{{count}} transactions importées",
+    "rowsSkipped": "{{count}} lignes ignorées",
+    "rowLabel": "Ligne {{row}}",
+    "field": {
+      "date": "Date",
+      "side": "Achat / Vente",
+      "tickerOrIsin": "Ticker / ISIN",
+      "name": "Nom",
+      "quantity": "Quantité",
+      "unitPrice": "Prix unitaire",
+      "fees": "Frais",
+      "currency": "Devise",
+      "amount": "Montant"
+    }
+  },
+  "realized": {
+    "title": "Plus-values réalisées",
+    "realizedGains": "Réalisé",
+    "proceeds": "Produit",
+    "avgCost": "PMP",
+    "qtySold": "Qté vendue"
+  },
+  "sidebarStylePrompt": {
+    "title": "Choisis le style de ta sidebar",
+    "description": "Deux dispositions au choix — tu pourras en changer à tout moment.",
+    "hint": "Modifiable à tout moment dans Paramètres > Apparence."
   }
 }

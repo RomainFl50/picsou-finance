@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, Legend, Line, ReferenceLine, XAxis, YAxis } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatDate, formatCurrency } from '@/lib/utils'
+import { formatDate, formatCurrency, localeFromLanguage } from '@/lib/utils'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
 import type { IntradayPoint } from '@/features/dashboard/api'
 
@@ -16,7 +16,7 @@ interface TrajectoryOverlay {
 }
 
 interface NetWorthChartProps {
-  data: { date: string; total: number; invested?: number }[]
+  data: { date: string; total: number; invested?: number; pnl?: number }[]
   intraday?: IntradayPoint[]
   range: TimeRange
   onRangeChange: (range: TimeRange) => void
@@ -38,15 +38,18 @@ interface NetWorthChartProps {
   todayLabel?: string
 }
 
-function NetWorthTooltip({ active, payload, labels, is24H }: {
+function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
   active?: boolean
   payload?: Array<{
     value: number
     dataKey: string
-    payload: { date?: string; timestamp?: string; total: number | null; invested?: number; target?: number; projection?: number }
+    payload: { date?: string; timestamp?: string; total: number | null; invested?: number; pnl?: number; target?: number; projection?: number }
   }>
   labels: { total: string; invested: string; target: string; projection: string; gainLoss: string; locale: string; currency: string }
   is24H: boolean
+  // Callers that hide investment info (showInvested={false}, e.g. goal charts)
+  // must not surface a gain/loss row either.
+  showGainLoss: boolean
 }) {
   if (!active || !payload?.length) return null
 
@@ -60,7 +63,11 @@ function NetWorthTooltip({ active, payload, labels, is24H }: {
   const investedItem = payload.find(p => p.dataKey === 'invested' && p.value != null)
   const hasInvested = investedItem != null
   const invested = hasInvested ? (investedItem.value as number) : 0
-  const gainLoss = total != null && hasInvested ? total - invested : null
+  // Gain/loss comes from the backend's debt-neutral pnl field — never recomputed
+  // locally, so debt can't be read as an investment loss (issue #18). Intraday
+  // points carry no pnl → the row is omitted.
+  const rowPnl = anchorItem.payload?.pnl
+  const gainLoss = typeof rowPnl === 'number' ? rowPnl : null
   const targetItem = payload.find(p => p.dataKey === 'target' && p.value != null)
   const target = targetItem ? (targetItem.value as number) : null
   const projectionItem = payload.find(p => p.dataKey === 'projection' && p.value != null)
@@ -122,10 +129,10 @@ function NetWorthTooltip({ active, payload, labels, is24H }: {
           </span>
         </div>
       )}
-      {hasInvested && gainLoss !== null && (
+      {showGainLoss && gainLoss !== null && (
         <>
           <div className="my-1.5 border-t border-border" />
-          <div className="flex items-center justify-between py-0.5">
+          <div className="flex items-center justify-between gap-3 py-0.5">
             <span className={`font-mono font-medium tabular-nums ${gainLoss >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
               {gainLoss >= 0 ? '+' : ''}{formatCurrency(gainLoss, labels.currency, labels.locale)}
             </span>
@@ -177,8 +184,8 @@ function getXAxisFormatter(range: TimeRange, locale: string, spanMs: number) {
 }
 
 export function NetWorthChart({ data, intraday = [], range, onRangeChange, showInvested = true, target, projection, todayMs, todayLabel }: NetWorthChartProps) {
-  const { t } = useTranslation()
-  const locale = t('common.locale')
+  const { t, i18n } = useTranslation()
+  const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const is24H = range === '24H'
   const showDots = range === '24H' || range === '7D'
 
@@ -224,6 +231,9 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
           dateMs: new Date(p.timestamp).getTime(),
           total: p.total as number | null,
           invested: p.invested,
+          // Dashboard intraday points carry no pnl (row omitted); synthetic
+          // intraday series (holding modal) may provide one.
+          pnl: p.pnl,
         }))
       : filterByRange(data, range).map(p => ({
           ...p,
@@ -321,9 +331,9 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
     target: target?.label ?? '',
     projection: projection?.label ?? '',
     gainLoss: t('dashboard.gainLoss'),
-    locale: t('common.locale'),
-    currency: t('common.currency'),
-  }), [t, target?.label, projection?.label])
+    locale,
+    currency: 'EUR',
+  }), [t, locale, target?.label, projection?.label])
 
   const xAxisFormatter = useMemo(() => {
     const spanMs = xDomain ? xDomain[1] - xDomain[0] : 0
@@ -384,7 +394,7 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
           width={45}
           tickCount={5}
         />
-        <ChartTooltip content={<NetWorthTooltip labels={labels} is24H={is24H} />} />
+        <ChartTooltip content={<NetWorthTooltip labels={labels} is24H={is24H} showGainLoss={showInvested} />} />
         <Area
           dataKey="total"
           type="monotone"

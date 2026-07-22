@@ -3,6 +3,8 @@ package com.picsou.config;
 import com.picsou.model.AppUser;
 import com.picsou.model.UserRole;
 import com.picsou.repository.AppUserRepository;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -10,6 +12,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
 
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Date;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -107,5 +114,129 @@ class JwtTokenAuthenticatorTest {
     void nullOrBlankToken_isRejected() {
         assertThat(authenticator.authenticate(null)).isEmpty();
         assertThat(authenticator.authenticate("   ")).isEmpty();
+    }
+
+    // ─── Task 4: authenticateMcpToken — path-scoped MCP validation ─────────
+
+    @Test
+    void validMcpToken_authenticateMcpToken_returnsUidAndScopes() {
+        when(userRepository.findByIdWithMember(42L)).thenReturn(Optional.of(user));
+        String token = mcpToken(user, "accounts:read goals:read", Instant.now().plusSeconds(900));
+
+        Optional<JwtTokenAuthenticator.McpPrincipal> result = authenticator.authenticateMcpToken(token);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().uid()).isEqualTo(42L);
+        assertThat(result.get().scopes()).containsExactlyInAnyOrder("accounts:read", "goals:read");
+    }
+
+    @Test
+    void accessToken_isRejectedByAuthenticateMcpToken() {
+        // A regular web/iOS access token (type=access) must never validate as an MCP token.
+        String token = jwtUtil.generateAccessToken(user);
+
+        assertThat(authenticator.authenticateMcpToken(token)).isEmpty();
+    }
+
+    @Test
+    void mcpToken_isRejectedByTheExistingApiWebAuthenticate() {
+        // The existing /api Bearer/cookie path must reject type=mcp (only type=access authenticates there).
+        String token = mcpToken(user, "accounts:read", Instant.now().plusSeconds(900));
+
+        assertThat(authenticator.authenticate(token)).isEmpty();
+    }
+
+    @Test
+    void expiredMcpToken_isRejected() {
+        String token = mcpToken(user, "accounts:read", Instant.now().minusSeconds(5));
+
+        assertThat(authenticator.authenticateMcpToken(token)).isEmpty();
+    }
+
+    @Test
+    void forgedMcpToken_isRejected() {
+        // Signed with a different secret — signature verification must fail.
+        SecretKey attackerKey = Keys.hmacShaKeyFor("ffffffffffffffffffffffffffffffff-evil".getBytes(StandardCharsets.UTF_8));
+        String forged = mcpToken(attackerKey, user, "accounts:read", Instant.now().plusSeconds(900));
+
+        assertThat(authenticator.authenticateMcpToken(forged)).isEmpty();
+    }
+
+    @Test
+    void mcpToken_wrongAudience_isRejected() {
+        String token = Jwts.builder()
+            .subject(user.getUsername())
+            .claim("uid", user.getId())
+            .claim("type", "mcp")
+            .claim("tv", user.getTokenVersion())
+            .claim("scope", "accounts:read")
+            .claim("aud", List.of("some-other-audience"))
+            .issuedAt(Date.from(Instant.now()))
+            .expiration(Date.from(Instant.now().plusSeconds(900)))
+            .signWith(SIGNING_KEY)
+            .compact();
+
+        assertThat(authenticator.authenticateMcpToken(token)).isEmpty();
+    }
+
+    @Test
+    void mcpToken_tokenVersionMismatch_isRejected() {
+        String token = mcpToken(user, "accounts:read", Instant.now().plusSeconds(900));
+        user.setTokenVersion(4L);
+        when(userRepository.findByIdWithMember(42L)).thenReturn(Optional.of(user));
+
+        assertThat(authenticator.authenticateMcpToken(token)).isEmpty();
+    }
+
+    @Test
+    void mcpToken_deactivatedOwner_isRejected() {
+        String token = mcpToken(user, "accounts:read", Instant.now().plusSeconds(900));
+        user.setActivated(false);
+        when(userRepository.findByIdWithMember(42L)).thenReturn(Optional.of(user));
+
+        assertThat(authenticator.authenticateMcpToken(token)).isEmpty();
+    }
+
+    @Test
+    void mcpToken_unknownOwner_isRejected() {
+        String token = mcpToken(user, "accounts:read", Instant.now().plusSeconds(900));
+        when(userRepository.findByIdWithMember(42L)).thenReturn(Optional.empty());
+
+        assertThat(authenticator.authenticateMcpToken(token)).isEmpty();
+    }
+
+    @Test
+    void mcpToken_blankScope_yieldsEmptyScopeSet() {
+        when(userRepository.findByIdWithMember(42L)).thenReturn(Optional.of(user));
+        String token = mcpToken(user, "", Instant.now().plusSeconds(900));
+
+        Optional<JwtTokenAuthenticator.McpPrincipal> result = authenticator.authenticateMcpToken(token);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().scopes()).isEmpty();
+    }
+
+    // ─── helpers ─────────────────────────────────────────────────────────
+
+    private static final SecretKey SIGNING_KEY = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+
+    /** Mints an MCP-shaped JWT ({@code type=mcp}, {@code aud=picsou-mcp}) the way the OAuth2
+     * authorization server's {@code jwtTokenCustomizer} would, signed with the shared test secret. */
+    private String mcpToken(AppUser u, String scope, Instant expiry) {
+        return mcpToken(SIGNING_KEY, u, scope, expiry);
+    }
+
+    private String mcpToken(SecretKey key, AppUser u, String scope, Instant expiry) {
+        return Jwts.builder()
+            .subject(u.getUsername())
+            .claim("uid", u.getId())
+            .claim("type", "mcp")
+            .claim("tv", u.getTokenVersion())
+            .claim("scope", scope)
+            .claim("aud", List.of("picsou-mcp"))
+            .issuedAt(Date.from(Instant.now()))
+            .expiration(Date.from(expiry))
+            .signWith(key)
+            .compact();
     }
 }

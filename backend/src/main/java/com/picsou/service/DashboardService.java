@@ -37,6 +37,7 @@ public class DashboardService {
     private final HistoryService historyService;
     private final DebtRepository debtRepository;
     private final LoanAmortizationService loanAmortizationService;
+    private final AccountService accountService;
 
     public DashboardService(
         AccountRepository accountRepository,
@@ -46,7 +47,8 @@ public class DashboardService {
         AccountHoldingRepository holdingRepository,
         HistoryService historyService,
         DebtRepository debtRepository,
-        LoanAmortizationService loanAmortizationService
+        LoanAmortizationService loanAmortizationService,
+        AccountService accountService
     ) {
         this.accountRepository = accountRepository;
         this.goalService = goalService;
@@ -56,10 +58,11 @@ public class DashboardService {
         this.historyService = historyService;
         this.debtRepository = debtRepository;
         this.loanAmortizationService = loanAmortizationService;
+        this.accountService = accountService;
     }
 
     public DashboardResponse getDashboard(Long memberId, String range) {
-        List<Account> accounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(memberId);
+        List<Account> accounts = accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(memberId);
 
         // Pre-load all holdings and group by account
         Map<Long, List<AccountHolding>> holdingsByAccount = new HashMap<>();
@@ -81,7 +84,13 @@ public class DashboardService {
             BigDecimal accountValue;
             BigDecimal accountInvested;
 
-            if (holdings.isEmpty()) {
+            if (account.getType() == AccountType.LOAN) {
+                // Same valuation source as HistoryService's live point: amortized
+                // remaining capital when a Debt row exists, stored balance otherwise.
+                // Keeps the hero's liabilities consistent with the chart's today point.
+                accountValue = accountService.liveBalanceEur(account);
+                accountInvested = BigDecimal.ZERO;
+            } else if (holdings.isEmpty()) {
                 accountValue = priceService.toEur(account.getCurrentBalance(), account.getCurrency(), account.getTicker());
                 accountInvested = accountValue;
             } else {
@@ -91,12 +100,7 @@ public class DashboardService {
                     BigDecimal qty = h.getQuantity();
                     BigDecimal avgBuy = h.getAverageBuyIn() != null ? h.getAverageBuyIn() : BigDecimal.ZERO;
 
-                    BigDecimal livePrice = h.getTicker() != null ? priceService.getPriceEur(h.getTicker()) : null;
-                    if (livePrice == null) {
-                        livePrice = h.getCurrentPrice() != null ? h.getCurrentPrice() : BigDecimal.ZERO;
-                    }
-
-                    liveValue = liveValue.add(qty.multiply(livePrice));
+                    liveValue = liveValue.add(holdingValueEur(h));
                     investedValue = investedValue.add(qty.multiply(avgBuy));
                 }
                 log.info("getDashboard: account={} holdings={} liveValue={} investedValue={}",
@@ -134,8 +138,10 @@ public class DashboardService {
         };
         List<NetWorthPoint> updatedHistory = historyService.buildHistory(allAccountIds, months, memberId);
 
-        List<DistributionItem> distribution = buildDistribution(accounts, totalNetWorth, holdingsByAccount, false);
-        List<DistributionItem> rawLiabilities = buildDistribution(accounts, totalNetWorth, holdingsByAccount, true);
+        // Percentages are shares of their own side of the balance sheet:
+        // assets divide by totalAssets, liabilities by totalLiabilities (issue #18).
+        List<DistributionItem> distribution = buildDistribution(accounts, totalAssets, holdingsByAccount, false);
+        List<DistributionItem> rawLiabilities = buildDistribution(accounts, totalLiabilities, holdingsByAccount, true);
 
         // Enrich liabilities with loan parameters in one query
         List<Long> liabilityIds = rawLiabilities.stream().map(DistributionItem::accountId).toList();
@@ -178,7 +184,7 @@ public class DashboardService {
             updatedHistory, distribution, liabilities, goals);
     }
 
-    private List<DistributionItem> buildDistribution(List<Account> accounts, BigDecimal totalNetWorth,
+    private List<DistributionItem> buildDistribution(List<Account> accounts, BigDecimal divisor,
                                                        Map<Long, List<AccountHolding>> holdingsByAccount,
                                                        boolean liabilitiesOnly) {
         List<DistributionItem> items = new ArrayList<>();
@@ -192,22 +198,20 @@ public class DashboardService {
 
             List<AccountHolding> holdings = holdingsByAccount.getOrDefault(account.getId(), List.of());
             BigDecimal balanceEur;
-            if (holdings.isEmpty()) {
+            if (isLoan) {
+                // Keep liability rows on the same valuation as the totals above.
+                balanceEur = accountService.liveBalanceEur(account);
+            } else if (holdings.isEmpty()) {
                 balanceEur = priceService.toEur(account.getCurrentBalance(), account.getCurrency(), account.getTicker());
             } else {
                 balanceEur = BigDecimal.ZERO;
                 for (AccountHolding h : holdings) {
-                    BigDecimal qty = h.getQuantity();
-                    BigDecimal livePrice = h.getTicker() != null ? priceService.getPriceEur(h.getTicker()) : null;
-                    if (livePrice == null) {
-                        livePrice = h.getCurrentPrice() != null ? h.getCurrentPrice() : BigDecimal.ZERO;
-                    }
-                    balanceEur = balanceEur.add(qty.multiply(livePrice));
+                    balanceEur = balanceEur.add(holdingValueEur(h));
                 }
             }
 
-            double percentage = totalNetWorth.compareTo(BigDecimal.ZERO) > 0
-                ? balanceEur.divide(totalNetWorth, 6, RoundingMode.HALF_UP)
+            double percentage = divisor.compareTo(BigDecimal.ZERO) > 0
+                ? balanceEur.divide(divisor, 6, RoundingMode.HALF_UP)
                     .multiply(BigDecimal.valueOf(100))
                     .doubleValue()
                 : 0.0;
@@ -224,5 +228,15 @@ public class DashboardService {
         }
 
         return items;
+    }
+
+    private BigDecimal holdingValueEur(AccountHolding holding) {
+        BigDecimal livePrice = holding.getTicker() != null ? priceService.getPriceEur(holding.getTicker()) : null;
+        if (livePrice == null) {
+            log.warn("No live price for ticker '{}' — holding {} valued at zero until a quote is available",
+                holding.getTicker(), holding.getId());
+            return BigDecimal.ZERO;
+        }
+        return holding.getQuantity().multiply(livePrice);
     }
 }

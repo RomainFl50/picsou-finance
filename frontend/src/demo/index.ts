@@ -1,6 +1,6 @@
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import type { GoalProgress } from '@/types/api'
-import { mockAccounts, mockUnnamedPockets, mockCsvSuggestions } from './data/accounts'
+import { mockAccounts } from './data/accounts'
 import { mockDashboard } from './data/dashboard'
 import { mockGoals } from './data/goals'
 import { mockHoldings } from './data/holdings'
@@ -32,11 +32,10 @@ type MockHandler = (config: InternalAxiosRequestConfig) => unknown
 const handlers = new Map<string, MockHandler>()
 
 // Mutable demo state for the pocket rename flow (resets on page reload).
-// Both are `let` so PUT handlers can reassign to a NEW array reference —
-// TanStack Query uses referential equality first (replaceEqualDeep) and will
-// not update React state if the same reference is returned after a mutation.
+// `let` so PUT handlers can reassign to a NEW array reference — TanStack Query
+// uses referential equality first (replaceEqualDeep) and will not update React
+// state if the same reference is returned after a mutation.
 let _demoAccounts = mockAccounts.map(a => ({ ...a }))
-let _demoUnnamedPockets = mockUnnamedPockets.slice()
 
 function key(method: string, url: string): string {
   const normalized = url.split('?')[0].replace(/\/$/, '')
@@ -155,33 +154,19 @@ for (let i = 1; i <= 10; i++) {
   handlers.set(key('GET', `/accounts/${i}/transactions`), () => mockTransactions[i] ?? [])
 }
 
-// Revolut pockets — unnamed list
-// Backend: GET /api/revolut-pockets/unnamed → UnnamedPocketResponse[]
-// Uses mutable state so a rename during the session removes the pocket from the list.
-handlers.set(key('GET', '/revolut-pockets/unnamed'), () => _demoUnnamedPockets)
-
-// Revolut pockets — CSV name suggestions (wrapped in CsvNamingResponse envelope)
-// Backend: POST /api/revolut-pockets/csv-naming → { suggestions: CsvNameSuggestion[] }
-handlers.set(key('POST', '/revolut-pockets/csv-naming'), () => ({
-  suggestions: mockCsvSuggestions,
-}))
-
 // Pocket rename (accounts 9 and 10) — re-uses the standard PUT /accounts/:id shape.
 // Reassigns _demoAccounts to a NEW array so TanStack Query detects the change
 // (replaceEqualDeep bails early on same-reference without inspecting contents).
-// Removes the pocket from _demoUnnamedPockets so the onboarding banner disappears.
 handlers.set(key('PUT', '/accounts/9'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const updated = { ..._demoAccounts[8], ...body }
   _demoAccounts = _demoAccounts.map((a, i) => i === 8 ? updated : a)
-  if (body.name) _demoUnnamedPockets = _demoUnnamedPockets.filter(p => p.accountId !== 9)
   return updated
 })
 handlers.set(key('PUT', '/accounts/10'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const updated = { ..._demoAccounts[9], ...body }
   _demoAccounts = _demoAccounts.map((a, i) => i === 9 ? updated : a)
-  if (body.name) _demoUnnamedPockets = _demoUnnamedPockets.filter(p => p.accountId !== 10)
   return updated
 })
 
@@ -250,6 +235,46 @@ function generateSavingsInterest(accountId: number) {
 handlers.set(key('GET', '/accounts/1/savings-interest'), () => generateSavingsInterest(1))
 handlers.set(key('GET', '/accounts/7/savings-interest'), () => generateSavingsInterest(7))
 
+// Realized P&L on closed positions. PEA (id=2) shows a green + a red closed lot;
+// the other holding accounts report nothing realized yet.
+handlers.set(key('GET', '/accounts/2/realized-pnl'), () => ({
+  currency: 'EUR',
+  realizedTotal: 420.5,
+  byTicker: [
+    { ticker: 'AAPL', name: 'Apple Inc.', realized: 512, quantitySold: 8, proceeds: 1512, costBasis: 1000, warning: false },
+    { ticker: 'TSLA', name: 'Tesla Inc.', realized: -91.5, quantitySold: 3, proceeds: 660, costBasis: 751.5, warning: false },
+  ],
+  lots: [
+    { ticker: 'AAPL', name: 'Apple Inc.', date: '2024-05-14', quantity: 8, avgCost: 125, proceeds: 1512, realized: 512 },
+    { ticker: 'TSLA', name: 'Tesla Inc.', date: '2024-09-02', quantity: 3, avgCost: 250.5, proceeds: 660, realized: -91.5 },
+  ],
+}))
+for (const i of [3, 6]) {
+  handlers.set(key('GET', `/accounts/${i}/realized-pnl`), () => ({
+    currency: 'EUR', realizedTotal: 0, byTicker: [], lots: [],
+  }))
+}
+
+// CSV transaction import wizard (holding accounts). Preview returns a French-style
+// sample (semicolon delimiter, comma decimals); execute reports a canned result.
+for (const i of [2, 3, 6]) {
+  handlers.set(key('POST', `/accounts/${i}/transactions/import/preview`), () => ({
+    fileToken: 'demo-token',
+    detectedColumns: ['Date', 'Sens', 'ISIN', 'Quantité', 'Cours', 'Frais'],
+    sampleRows: [
+      ['15/01/2024', 'Achat', 'IE00B4L5Y983', '10', '85,20', '1,00'],
+      ['02/06/2024', 'Vente', 'IE00B4L5Y983', '10', '92,50', '1,00'],
+    ],
+    totalRows: 2,
+    hasHeaderRow: true,
+    dialect: { delimiter: ';', decimal: 'COMMA', dateFormat: 'dd/MM/yyyy' },
+    suggestedMapping: { date: 0, side: 1, tickerOrIsin: 2, name: null, quantity: 3, unitPrice: 4, fees: 5, currency: null, amount: null },
+  }))
+  handlers.set(key('POST', `/accounts/${i}/transactions/import`), () => ({
+    imported: 2, skipped: 0, errors: [],
+  }))
+}
+
 // Security insight (asset type + ETF composition). Mirrors the backend
 // SecurityInsightResponse: { ticker, assetType, composition | null }.
 const demoStockTickers = ['AAPL', 'MSFT', 'AMZN', 'NVDA']
@@ -303,7 +328,8 @@ function generateHistory(startBalances: number[]) {
   const months = startBalances.length
 
   for (let i = 0; i < months; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1)
+    // UTC for the same reason as generateNetWorthHistory: keep the ISO date on the 1st.
+    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() - (months - 1 - i), 1))
     points.push({
       id: 100 + i,
       date: d.toISOString().split('T')[0],
@@ -404,6 +430,27 @@ handlers.set(key('GET', '/history'), (config) => {
 
     return { date, total, invested, pnl, ...(split ? { accounts } : {}) }
   })
+})
+
+// PnL summary (dashboard header + account detail)
+handlers.set(key('GET', '/history/pnl'), () => ({
+  total: 72_000,
+  invested: 39_600,
+  pnl: 5_820,
+  pnlPercent: 14.7,
+  valueAtFrom: 66_500,
+  rangePnl: 5_500,
+  rangePnlPercent: 8.3,
+}))
+
+// Intraday net worth (24H dashboard range): one point per hour, mild noise.
+handlers.set(key('GET', '/history/net-worth/intraday'), () => {
+  const now = Date.now()
+  return Array.from({ length: 24 }, (_, i) => ({
+    timestamp: new Date(now - (23 - i) * 3_600_000).toISOString(),
+    total: Math.round((71_400 + i * 25 + Math.sin(i / 2.5) * 180) * 100) / 100,
+    invested: 39_600,
+  }))
 })
 
 // Goals
@@ -582,6 +629,103 @@ handlers.set(key('GET', '/admin/ai-calls'), () => ({
 }))
 
 // Finary - configured
+// Settings — security (2FA off in demo, one active session)
+handlers.set(key('GET', '/auth/mfa/status'), () => ({
+  enabled: false,
+  enrolledAt: null,
+  remainingRecoveryCodes: 0,
+}))
+handlers.set(key('GET', '/auth/sessions'), () => ([
+  {
+    id: 1,
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Demo Browser',
+    ipPrefix: '192.168.1.x',
+    createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    lastUsedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 87 * 86_400_000).toISOString(),
+    trustedFor2fa: false,
+    current: true,
+  },
+]))
+
+// Settings — access keys (MCP). One mutable array backs list/create/revoke so
+// the UI's refetch after a mutation actually reflects it (in-memory only,
+// resets on reload — fine for the demo).
+const demoAccessKeys: {
+  id: number
+  name: string
+  keyPrefix: string
+  scopes: string[]
+  lastUsedAt: string | null
+  expiresAt: string | null
+  revokedAt: string | null
+  createdAt: string
+}[] = [
+  {
+    id: 1,
+    name: 'Demo MCP key',
+    keyPrefix: 'pk_demo_a1b2',
+    scopes: ['accounts_read', 'dashboard_read'],
+    lastUsedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    expiresAt: null,
+    revokedAt: null,
+    createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+  },
+]
+handlers.set(key('GET', '/access-keys'), () => [...demoAccessKeys])
+handlers.set(key('POST', '/access-keys'), (config) => {
+  const body = JSON.parse(config.data ?? '{}') as { name?: string; scopes?: string[]; expiresAt?: string | null }
+  const newKey = {
+    id: Math.max(0, ...demoAccessKeys.map((k) => k.id)) + 1,
+    name: body.name ?? 'Demo key',
+    keyPrefix: 'pk_demo_c3d4',
+    scopes: body.scopes ?? [],
+    lastUsedAt: null,
+    expiresAt: body.expiresAt ?? null,
+    revokedAt: null,
+    createdAt: new Date().toISOString(),
+  }
+  demoAccessKeys.push(newKey)
+  return { secret: 'pk_demo_secret_shown_once_0000000000000000', key: newKey }
+})
+// Routes are exact-match (no dynamic segments), so revocation is wired for the
+// first few ids — enough for a demo session.
+for (const id of [1, 2, 3, 4, 5]) {
+  handlers.set(key('DELETE', `/access-keys/${id}`), () => {
+    const k = demoAccessKeys.find((x) => x.id === id)
+    if (k) k.revokedAt = new Date().toISOString()
+    return null
+  })
+}
+
+// Family (solo demo profile: no managed members, a small shared view)
+handlers.set(key('GET', '/family/members'), () => [])
+handlers.set(key('GET', '/family/dashboard'), () => ({
+  sharedAccounts: [
+    { id: 1, ownerName: 'Demo', name: 'LEP La Banque Postale', type: 'LEP', currency: 'EUR', balance: 7800, balanceEur: 7800 },
+    { id: 2, ownerName: 'Demo', name: 'PEA Boursorama', type: 'PEA', currency: 'EUR', balance: 12450, balanceEur: 12450 },
+  ],
+  sharedGoals: [
+    {
+      id: 1,
+      ownerName: 'Demo',
+      name: 'Vacances été 2025',
+      targetAmount: 3000,
+      currentTotal: 1580.9,
+      contributions: [{ memberName: 'Demo', amount: 1580.9 }],
+    },
+  ],
+  totalSharedNetWorth: 20_250,
+}))
+handlers.set(key('GET', '/family/sharing'), (config) => {
+  const params = (config.params ?? {}) as { resourceType?: string }
+  return {
+    resourceType: params.resourceType ?? 'ACCOUNT',
+    sharingLevel: 'ALL',
+    sharedResourceIds: [],
+  }
+})
+
 handlers.set(key('GET', '/finary/configured'), () => true)
 
 // Finary - preview file

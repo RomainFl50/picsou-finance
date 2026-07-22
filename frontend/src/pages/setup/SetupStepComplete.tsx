@@ -9,6 +9,8 @@ import { useSetupFlowStore, type IntegrationKey } from '@/stores/setup-flow-stor
 import { consumeSetupCredentials } from '@/stores/setup-credentials'
 import { authApi } from '@/features/auth/api'
 import { useAuthStore } from '@/stores/auth-store'
+import { useAppStore } from '@/stores/app-store'
+import { SidebarStylePromptModal } from '@/components/layout/SidebarStylePromptModal'
 
 type AutoLoginState = 'idle' | 'attempting' | 'success' | 'failed'
 
@@ -38,6 +40,9 @@ export function SetupStepComplete() {
 
   const [autoLogin, setAutoLogin] = useState<AutoLoginState>('idle')
   const ranOnce = useRef(false)
+
+  const hasSeenSidebarStylePrompt = useAppStore((s) => s.hasSeenSidebarStylePrompt)
+  const [showSidebarStylePrompt, setShowSidebarStylePrompt] = useState(!hasSeenSidebarStylePrompt)
 
   useEffect(() => {
     if (ranOnce.current) return
@@ -97,6 +102,8 @@ export function SetupStepComplete() {
 
   return (
     <div className="relative">
+      <SidebarStylePromptModal open={showSidebarStylePrompt} onOpenChange={setShowSidebarStylePrompt} />
+
       {/* The confetti container is absolutely positioned so it never pushes
           content around. The parent is relative so pieces anchor correctly. */}
       <Confetti />
@@ -155,17 +162,15 @@ export function SetupStepComplete() {
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
           {autoLogin === 'success' ? (
             <Button
-              size="lg"
               onClick={goToDashboard}
-              className="w-full rounded-full px-8 transition-transform hover:scale-[1.02] sm:w-auto"
+              className="w-full rounded-full"
             >
               {t('setup.complete.cta')}
             </Button>
           ) : autoLogin === 'failed' ? (
             <Button
-              size="lg"
               onClick={goToLogin}
-              className="w-full rounded-full px-8 transition-transform hover:scale-[1.02] sm:w-auto"
+              className="w-full rounded-full"
             >
               {t('setup.complete.loginFallback')}
             </Button>

@@ -3,15 +3,26 @@ import type { Account } from '@/types/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
-import { formatDate } from '@/lib/utils'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
+import { formatCurrency, formatDate, localeFromLanguage } from '@/lib/utils'
 
 interface AccountCardProps {
   account: Account
   onClick?: () => void
 }
 
+function AccountAvatar({ logoUrl, color }: { logoUrl: string | null; color: string }) {
+  return (
+    <Avatar className="mt-1 size-10 shrink-0 bg-white">
+      {logoUrl && <AvatarImage src={logoUrl} alt="" className="object-contain p-1" />}
+      <AvatarFallback style={{ backgroundColor: color }} />
+    </Avatar>
+  )
+}
+
 export function AccountCard({ account, onClick }: AccountCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = localeFromLanguage(i18n.resolvedLanguage ?? i18n.language)
   const isLoan = account.type === 'LOAN'
   const isRealEstate = account.type === 'REAL_ESTATE'
 
@@ -24,14 +35,11 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
 
   return (
     <Card
-      className="cursor-pointer transition-shadow hover:shadow-md"
+      className="cursor-pointer transition-colors hover:bg-muted/20"
       onClick={onClick}
     >
       <CardContent className="flex items-start gap-3 p-4">
-        <div
-          className="mt-1 h-10 w-1 shrink-0 rounded-full"
-          style={{ backgroundColor: account.color }}
-        />
+        <AccountAvatar logoUrl={account.logoUrl} color={account.color} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-medium">{account.name}</span>
@@ -49,13 +57,13 @@ export function AccountCard({ account, onClick }: AccountCardProps) {
           </div>
           {isRealEstate && pnl !== null && (
             <p className={`mt-1 text-xs ${pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {pnl >= 0 ? '+' : ''}{pnl.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+              {pnl >= 0 ? '+' : ''}{formatCurrency(pnl, 'EUR', locale)}
               {pnlPct !== null && ` (${pnl >= 0 ? '+' : ''}${pnlPct}%)`}
             </p>
           )}
           {isLoan && account.debt && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {t('debt.borrowedAmount')}: {account.debt.borrowedAmount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+              {t('debt.borrowedAmount')}: {formatCurrency(account.debt.borrowedAmount, 'EUR', locale)}
             </p>
           )}
           {account.lastSyncedAt && (

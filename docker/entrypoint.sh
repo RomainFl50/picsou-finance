@@ -60,5 +60,6 @@ bootstrap_secret "postgres_password" "POSTGRES_PASSWORD"     "rand -base64 24"
 export SERVER_PORT=9090
 export TR_AUTH_URL=${TR_AUTH_URL:-http://127.0.0.1:8001}
 export REVOLUT_AUTH_URL=${REVOLUT_AUTH_URL:-http://127.0.0.1:8002}
+export APP_STARTUP_SYNC_ENABLED=${APP_STARTUP_SYNC_ENABLED:-false}
 
-exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/picsou.conf

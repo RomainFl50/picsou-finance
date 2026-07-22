@@ -1,5 +1,10 @@
 # Feature: Revolut pockets in the budget
 
+> **Removed (2026-07-14):** superseded by the Revolut sidecar connector, which syncs real
+> pockets — see [`revolut-sidecar.md`](./revolut-sidecar.md) and
+> [the superseding ADR note](../decisions/2026-06-28-revolut-pockets-reconstruction.md). This
+> document describes a feature no longer present in the codebase; kept for historical context.
+
 > Last updated: 2026-06-28
 > Status: **Implemented** (shipped 2026-06-28).
 

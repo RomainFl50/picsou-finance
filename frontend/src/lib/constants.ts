@@ -12,6 +12,11 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
   { value: 'OTHER', labelKey: 'accountTypes.other' },
 ]
 
+/** Translation key for an account type's display label. */
+export function accountTypeLabelKey(type: AccountType): string {
+  return ACCOUNT_TYPES.find((t) => t.value === type)?.labelKey ?? 'accountTypes.other'
+}
+
 /**
  * Curated list of valid ISO 4217 codes offered in the account form's currency
  * dropdown (EUR first). Labels are rendered live via `Intl.DisplayNames`, so this
@@ -38,3 +43,19 @@ export const QUERY_STALE_TIMES = {
   goals: 2 * 60 * 1000,
   budget: 2 * 60 * 1000,
 } as const
+
+/**
+ * Length of the SMS verification code (TAN) Trade Republic sends during device
+ * pairing. Shared by every TR entry point (AddAccountModal, SyncAllModal,
+ * TradeRepublicTab) so client-side validation stays consistent.
+ */
+export const TR_VERIFICATION_CODE_LENGTH = 4
+
+/**
+ * How long a successful `session-probe` result (RequireAuth's cookie-backed
+ * session check) may sit in the query cache after it stops being observed
+ * (isAuthenticated flips true). Bounded rather than Infinity so a stale
+ * "success" can eventually be garbage-collected as a backstop, even if some
+ * future logout path forgot to explicitly clear it via queryClient.clear().
+ */
+export const SESSION_PROBE_GC_TIME = 5 * 60 * 1000

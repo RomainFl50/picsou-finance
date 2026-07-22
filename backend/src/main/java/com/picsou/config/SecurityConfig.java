@@ -20,6 +20,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.config.Customizer;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
@@ -72,6 +74,15 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/auth/mfa/verify").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/auth/activate/*").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                // RFC 9728 protected-resource metadata (Task 7) and RFC 7591 dynamic client
+                // registration (Task 8): unauthenticated by design, so a remote-MCP client can
+                // discover the resource + self-register before the OAuth handshake even starts.
+                // Neither is matched by the AS chain's own securityMatcher (@Order(1) above) —
+                // /.well-known/oauth-protected-resource isn't an AS-native endpoint, and
+                // /oauth2/register is a plain controller, not a configured clientRegistrationEndpoint
+                // — so both fall through to this chain and need an explicit permitAll here.
+                .requestMatchers(ProtectedResourceMetadataController.PATH).permitAll()
+                .requestMatchers(HttpMethod.POST, "/oauth2/register").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/mcp/**").authenticated()
                 .anyRequest().authenticated()
@@ -91,19 +102,33 @@ public class SecurityConfig {
                 UsernamePasswordAuthenticationFilter.class
             )
             // Last of the same-anchor filters: only acts on /mcp/** (shouldNotFilter), validates the
-            // Bearer access-key, and sets an AccessKeyAuthentication carrying scope authorities only.
+            // Bearer access-key or MCP JWT, and sets an AccessKeyAuthentication carrying scope
+            // authorities only.
             .addFilterBefore(
-                new AccessKeyAuthFilter(accessKeyService, mcpKeyBuckets),
+                new AccessKeyAuthFilter(accessKeyService, mcpKeyBuckets, jwtTokenAuthenticator, appUserRepository),
                 UsernamePasswordAuthenticationFilter.class
             )
+            // Two "default" entry points rather than one plain authenticationEntryPoint(...):
+            // ExceptionHandlingConfigurer ignores defaultAuthenticationEntryPointFor(...) mappings
+            // entirely once a plain authenticationEntryPoint(...) is set, so /mcp/** gets its own
+            // RFC 9728 challenge (McpAuthenticationEntryPoint) while every other path falls through
+            // to the catch-all matcher below, which reproduces the original problem+json body
+            // unchanged.
             .exceptionHandling(ex -> ex
-                .authenticationEntryPoint((req, res, authEx) -> {
-                    res.setStatus(401);
-                    res.setContentType("application/problem+json");
-                    res.getWriter().write("""
-                        {"status":401,"title":"Unauthorized","detail":"Authentication required"}
-                        """);
-                })
+                .defaultAuthenticationEntryPointFor(
+                    new McpAuthenticationEntryPoint(),
+                    new AntPathRequestMatcher("/mcp/**")
+                )
+                .defaultAuthenticationEntryPointFor(
+                    (req, res, authEx) -> {
+                        res.setStatus(401);
+                        res.setContentType("application/problem+json");
+                        res.getWriter().write("""
+                            {"status":401,"title":"Unauthorized","detail":"Authentication required"}
+                            """);
+                    },
+                    AnyRequestMatcher.INSTANCE
+                )
             );
 
         return http.build();

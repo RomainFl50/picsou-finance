@@ -146,7 +146,8 @@ public class WalletSyncService {
             try {
                 sync(wallet.getId(), memberId);
             } catch (Exception ex) {
-                log.warn("Wallet resync failed for {} {}: {}", wallet.getChain(), wallet.getAddress(), ex.getMessage());
+                log.debug("Wallet resync skipped for {} {} after sync failure",
+                    wallet.getChain(), wallet.getAddress(), ex);
             }
         }
     }

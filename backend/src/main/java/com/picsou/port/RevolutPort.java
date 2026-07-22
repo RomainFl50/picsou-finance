@@ -55,4 +55,13 @@ public interface RevolutPort {
      *         {@code "APPROVAL_TIMEOUT"} when the mobile push was never approved in time (HTTP 408).
      */
     List<RevolutAccountData> sync(String phoneNumber, String passcode, Long memberId);
+
+    /**
+     * Variant for unattended callers. When {@code allowLogin} is false, the sidecar may reuse an
+     * existing live browser profile but must not start a fresh login that waits for mobile approval.
+     */
+    default List<RevolutAccountData> sync(
+            String phoneNumber, String passcode, Long memberId, boolean allowLogin) {
+        return sync(phoneNumber, passcode, memberId);
+    }
 }

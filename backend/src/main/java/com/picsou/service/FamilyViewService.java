@@ -64,18 +64,19 @@ public class FamilyViewService {
             if (accountSettings != null && accountSettings.getSharingLevel() != SharingLevel.NONE) {
                 List<Account> accounts;
                 if (accountSettings.getSharingLevel() == SharingLevel.ALL) {
-                    accounts = accountRepository.findAllByMemberIdOrderByCreatedAtAsc(member.getId());
+                    accounts = accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(member.getId());
                 } else {
                     // MANUAL — only specific shared resources
                     List<Long> sharedIds = sharedResourceRepository
                         .findAllByOwnerMemberIdAndResourceType(member.getId(), "ACCOUNT").stream()
                         .map(SharedResource::getResourceId)
                         .toList();
-                    accounts = accountRepository.findAllById(sharedIds);
+                    accounts = accountRepository.findByIdInAndMemberId(sharedIds, member.getId());
                 }
 
                 for (Account acc : accounts) {
-                    BigDecimal balanceEur = accountService.liveBalanceEur(acc);
+                    // Signed: LOAN accounts count negatively so totalNetWorth below is correct.
+                    BigDecimal balanceEur = accountService.signedLiveBalanceEur(acc);
                     sharedAccounts.add(new SharedAccountInfo(
                         acc.getId(),
                         ownerName,
@@ -102,12 +103,12 @@ public class FamilyViewService {
                         .findAllByOwnerMemberIdAndResourceType(member.getId(), "GOAL").stream()
                         .map(SharedResource::getResourceId)
                         .toList();
-                    goals = goalRepository.findAllById(sharedIds);
+                    goals = goalRepository.findByIdInAndMemberId(sharedIds, member.getId());
                 }
 
                 for (Goal goal : goals) {
                     BigDecimal currentTotal = goal.getAccounts().stream()
-                        .map(a -> accountService.liveBalanceEur(a))
+                        .map(a -> accountService.signedLiveBalanceEur(a))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
 
                     // Build contributions per member (from manual contributions)

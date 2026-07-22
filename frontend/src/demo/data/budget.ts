@@ -462,6 +462,7 @@ function leafTransactions(cat: Category, factor: number): Transaction[] {
       pricePerUnit: null,
       merchantLabel: merchant,
       merchantBrandId: null,
+      fees: null,
     }
   })
 }
