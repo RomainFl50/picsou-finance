@@ -9,6 +9,7 @@ struct BudgetSettingsView: View {
     @State private var settings: BudgetSettings?
     @State private var isLoading = true
     @State private var error: String?
+    @State private var loadErrorMessage: String?
 
     var body: some View {
         Group {
@@ -33,6 +34,12 @@ struct BudgetSettingsView: View {
                     }
                 }
                 .tint(Theme.brand)
+            } else if let loadErrorMessage {
+                ScrollView {
+                    Text(loadErrorMessage).font(Theme.font(14)).foregroundStyle(Theme.mutedForeground)
+                        .frame(maxWidth: .infinity).padding(.top, 100)
+                }
+                .refreshable { await load() }
             }
         }
         .navigationTitle("Réglages du budget")
@@ -64,7 +71,12 @@ struct BudgetSettingsView: View {
 
     private func load() async {
         isLoading = true
-        settings = try? await dataSource.budgetSettings()
+        loadErrorMessage = nil
+        do {
+            settings = try await dataSource.budgetSettings()
+        } catch {
+            loadErrorMessage = "Impossible de charger les réglages. Tire pour réessayer."
+        }
         isLoading = false
     }
 

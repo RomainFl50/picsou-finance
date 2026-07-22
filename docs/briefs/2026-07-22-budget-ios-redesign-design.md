@@ -88,6 +88,12 @@ billing) shows a "~min–max" range instead of one misleading fixed amount.
   claimed a `load()` that was never actually called) — a failed bulk item vanished from the inbox
   without being persisted. Same failure class as the first bug, found by the *second* review pass
   after the first bug's fix was already verified elsewhere in the same file.
+- **`BudgetSettingsView` had no failed-load state** — `settings = try? await ...` swallowed the
+  error, and the view's body only handled `isLoading`/`if let settings`, so a failed GET rendered a
+  silent blank screen under the nav title, with no retry. Found independently by two teammate
+  reviews during the pre-release pass (a product-lead pass and a UX/a11y pass), both citing the same
+  contradiction: every other Budget screen already had this exact failure class fixed. Now mirrors
+  `RecurringView`'s pattern (error text in a `ScrollView` + `.refreshable`).
 
 ## Technical notes
 
