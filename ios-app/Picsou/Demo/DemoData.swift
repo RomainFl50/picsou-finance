@@ -141,15 +141,18 @@ enum DemoData {
     }
 
     static func transactions(id: Int64) -> [Transaction] {
-        let rows: [(String, Double, String?, String?)] = [
-            ("Carrefour Market", -54.30, "Alimentation", "Carrefour"),
-            ("Salaire", 2450.00, "Revenus", nil),
-            ("Netflix", -13.49, "Abonnements", "Netflix"),
-            ("SNCF", -78.00, "Transport", "SNCF"),
-            ("Boulangerie du coin", -6.80, "Alimentation", nil),
-            ("EDF", -89.00, "Énergie", "EDF"),
-            ("Amazon", -34.99, "Shopping", "Amazon"),
-            ("Pharmacie Centrale", -12.40, "Santé", nil),
+        // (label, amount, categoryId, merchant, aiSuggestedCategoryId, aiConfidence) — the last two
+        // rows are left uncategorized so the demo categorization inbox has real content: one with
+        // an AI suggestion pre-filled, one without (so both card variants are demoable).
+        let rows: [(String, Double, Int64?, String?, Int64?, Int?)] = [
+            ("Carrefour Market", -54.30, 1, "Carrefour", nil, nil),
+            ("Salaire", 2450.00, 9, nil, nil, nil),
+            ("Netflix", -13.49, 4, "Netflix", nil, nil),
+            ("SNCF", -78.00, 2, "SNCF", nil, nil),
+            ("Boulangerie du coin", -6.80, 1, nil, nil, nil),
+            ("EDF", -89.00, 7, "EDF", nil, nil),
+            ("Amazon", -34.99, nil, "Amazon", 6, 88),
+            ("Pharmacie Centrale", -12.40, nil, nil, nil, nil),
         ]
         let name = account(id: id).name
         let calendar = Calendar(identifier: .gregorian)
@@ -159,8 +162,10 @@ enum DemoData {
             return Transaction(id: Int64(i + 1), date: DateParsing.localDate.string(from: date),
                                description: row.0, amount: Decimal(row.1), nativeCurrency: "EUR",
                                manual: false, txType: row.1 < 0 ? "WITHDRAWAL" : "DEPOSIT",
-                               categoryName: row.2, merchantLabel: row.3, counterparty: nil,
-                               accountId: id, accountName: name)
+                               categoryId: row.2, categoryName: row.2.flatMap(categoryName(for:)),
+                               merchantLabel: row.3, merchantBrandId: nil, counterparty: nil,
+                               accountId: id, accountName: name,
+                               aiSuggestedCategoryId: row.4, aiConfidence: row.5)
         }
     }
 
@@ -188,8 +193,10 @@ enum DemoData {
         Transaction(id: Int64.random(in: 100_000...999_999), date: request.date,
                     description: request.description, amount: request.amount,
                     nativeCurrency: request.currency ?? "EUR", manual: true, txType: request.txType,
-                    categoryName: nil, merchantLabel: nil, counterparty: nil,
-                    accountId: accountId, accountName: account(id: accountId).name)
+                    categoryId: request.categoryId, categoryName: request.categoryId.flatMap(categoryName(for:)),
+                    merchantLabel: nil, merchantBrandId: nil, counterparty: nil,
+                    accountId: accountId, accountName: account(id: accountId).name,
+                    aiSuggestedCategoryId: nil, aiConfidence: nil)
     }
 
     static func accountsList() -> [Account] {
@@ -233,20 +240,127 @@ enum DemoData {
         CashflowSummary(from: "2026-07-01", to: "2026-07-31", income: 2450, expense: 1684, net: 766)
     }
 
+    // MARK: - Categories (canonical demo catalog, shared by transactions/envelopes/spending/recurring)
+
+    private static let categoryCatalog: [(id: Int64, name: String, color: String, kind: CategoryKind)] = [
+        (1, "Alimentation", "#10B981", .expense),
+        (2, "Transport", "#F59E0B", .expense),
+        (3, "Loisirs", "#8B5CF6", .expense),
+        (4, "Abonnements", "#6366F1", .expense),
+        (5, "Restaurants", "#EF4444", .expense),
+        (6, "Shopping", "#EC4899", .expense),
+        (7, "Énergie", "#06B6D4", .expense),
+        (8, "Santé", "#14B8A6", .expense),
+        (9, "Revenus", "#22C55E", .income),
+    ]
+
+    static func categories() -> [Category] {
+        categoryCatalog.enumerated().map { index, c in
+            Category(id: c.id, name: c.name, kind: c.kind, color: c.color, icon: nil,
+                     isDefault: true, archived: false, sortOrder: index, parentId: nil)
+        }
+    }
+
+    static func categoryName(for id: Int64) -> String? { categoryCatalog.first { $0.id == id }?.name }
+    static func categoryColor(for id: Int64) -> String { categoryCatalog.first { $0.id == id }?.color ?? Theme.fallbackColorHex }
+
     static func budgetEnvelopes() -> [BudgetEnvelope] {
-        func env(_ id: Int64, _ name: String, _ color: String, _ limit: Double, _ spent: Double) -> BudgetEnvelope {
+        func env(_ id: Int64, _ categoryId: Int64, _ limit: Double, _ spent: Double) -> BudgetEnvelope {
             let percent = limit > 0 ? min(999, spent / limit * 100) : 0
-            return BudgetEnvelope(id: id, categoryName: name, categoryColor: color, categoryKind: "EXPENSE",
+            let c = categoryCatalog.first { $0.id == categoryId }!
+            return BudgetEnvelope(id: id, categoryId: categoryId, categoryName: c.name, categoryColor: c.color,
+                                  categoryKind: c.kind.rawValue,
                                   monthlyLimit: Decimal(limit), spent: Decimal(spent),
                                   remaining: Decimal(limit - spent), percent: Decimal(percent),
                                   overBudget: spent > limit, cycleStart: "2026-07-01", cycleEnd: "2026-07-31")
         }
         return [
-            env(1, "Alimentation", "#10B981", 500, 543),
-            env(2, "Transport", "#F59E0B", 150, 118),
-            env(3, "Loisirs", "#8B5CF6", 200, 96),
-            env(4, "Abonnements", "#6366F1", 80, 64),
-            env(5, "Restaurants", "#EF4444", 180, 152),
+            env(1, 1, 500, 543),
+            env(2, 2, 150, 118),
+            env(3, 3, 200, 96),
+            env(4, 4, 80, 64),
+            env(5, 5, 180, 152),
+        ]
+    }
+
+    static func budgetSettings() -> BudgetSettings {
+        BudgetSettings(cycleStartDay: 1, logoFetchEnabled: true, aiCategorizationEnabled: true,
+                       aiMode: .autoHighConfidence, aiConfidenceThreshold: 80,
+                       currentCycleStart: "2026-07-01", currentCycleEnd: "2026-07-31")
+    }
+
+    static func spendingByCategory() -> SpendingByCategory {
+        let rows: [(Int64, Double, Int)] = [(1, 543, 12), (5, 152, 6), (2, 118, 4), (7, 89, 1), (4, 64, 2), (3, 96, 3)]
+        let total = rows.reduce(0) { $0 + $1.1 }
+        let items = rows.map { id, amount, count -> CategorySpend in
+            let c = categoryCatalog.first { $0.id == id }!
+            return CategorySpend(categoryId: id, slug: nil, name: c.name, color: c.color, icon: nil,
+                                  amount: Decimal(amount), count: count,
+                                  share: total > 0 ? Decimal(amount / total) : 0, parentId: nil, parentName: nil, parentColor: nil)
+        }
+        return SpendingByCategory(period: "CYCLE", from: "2026-07-01", to: "2026-07-31",
+                                  totalExpense: Decimal(total), categories: items)
+    }
+
+    static func spendingDetail(categoryId: Int64, period: CashflowPeriod) -> SpendingDetail {
+        let c = categoryCatalog.first { $0.id == categoryId } ?? categoryCatalog[0]
+        let txs = transactions(id: 3).filter { $0.categoryId == categoryId }
+        let total = txs.reduce(Decimal(0)) { $0 + $1.amount }
+        return SpendingDetail(categoryId: categoryId, slug: nil, name: c.name, color: c.color, icon: nil,
+                              period: period.rawValue, from: "2026-07-01", to: "2026-07-31",
+                              total: total, count: txs.count, transactions: txs)
+    }
+
+    static func recurringSeries() -> [RecurringSeries] {
+        [
+            RecurringSeries(id: 1, label: "Netflix", counterparty: "NETFLIX.COM", expectedAmount: -15.49,
+                            cadence: .monthly, status: .confirmed, nextDueDate: "2026-08-05", lastSeenDate: "2026-07-05",
+                            categoryId: 4, categoryName: "Abonnements", categoryColor: "#6366F1",
+                            confidence: 96, variable: false, amountMin: nil, amountMax: nil,
+                            previousAmount: -13.49, priceChangedAt: "2026-07-05",
+                            autoConfirmed: false, runtimeStatus: .scheduled),
+            RecurringSeries(id: 2, label: "Spotify", counterparty: "SPOTIFY", expectedAmount: -10.99,
+                            cadence: .monthly, status: .suggested, nextDueDate: "2026-07-28", lastSeenDate: "2026-06-28",
+                            categoryId: 4, categoryName: "Abonnements", categoryColor: "#6366F1",
+                            confidence: 91, variable: false, amountMin: nil, amountMax: nil,
+                            previousAmount: nil, priceChangedAt: nil,
+                            autoConfirmed: false, runtimeStatus: .dueSoon),
+            RecurringSeries(id: 3, label: "Assurance habitation", counterparty: "MAIF", expectedAmount: -18.20,
+                            cadence: .monthly, status: .confirmed, nextDueDate: "2026-07-15", lastSeenDate: "2026-06-15",
+                            categoryId: nil, categoryName: nil, categoryColor: nil,
+                            confidence: 84, variable: true, amountMin: -16, amountMax: -24,
+                            previousAmount: nil, priceChangedAt: nil,
+                            autoConfirmed: true, runtimeStatus: .late),
+            RecurringSeries(id: 4, label: "Salle de sport", counterparty: "BASIC FIT", expectedAmount: -29.99,
+                            cadence: .monthly, status: .ignored, nextDueDate: "2026-07-20", lastSeenDate: "2026-06-20",
+                            categoryId: 3, categoryName: "Loisirs", categoryColor: "#8B5CF6",
+                            confidence: 77, variable: false, amountMin: nil, amountMax: nil,
+                            previousAmount: nil, priceChangedAt: nil,
+                            autoConfirmed: false, runtimeStatus: .scheduled),
+        ]
+    }
+
+    static func recurringActivity() -> [RecurringActivity] {
+        [
+            RecurringActivity(seriesId: 1, label: "Netflix", type: .priceChange, occurredOn: "2026-07-05",
+                              expectedAmount: -15.49, previousAmount: -13.49, cadence: .monthly,
+                              categoryId: 4, categoryName: "Abonnements", categoryColor: "#6366F1"),
+            RecurringActivity(seriesId: 3, label: "Assurance habitation", type: .autoConfirmed, occurredOn: "2026-06-15",
+                              expectedAmount: -18.20, previousAmount: nil, cadence: .monthly,
+                              categoryId: nil, categoryName: nil, categoryColor: nil),
+        ]
+    }
+
+    static func recurringCalendar() -> [RecurringOccurrence] {
+        [
+            RecurringOccurrence(seriesId: 3, label: "Assurance habitation", counterparty: "MAIF", expectedAmount: -18.20,
+                                dueDate: "2026-07-15", categoryId: nil, categoryName: nil, categoryColor: nil),
+            RecurringOccurrence(seriesId: 4, label: "Salle de sport", counterparty: "BASIC FIT", expectedAmount: -29.99,
+                                dueDate: "2026-07-20", categoryId: 3, categoryName: "Loisirs", categoryColor: "#8B5CF6"),
+            RecurringOccurrence(seriesId: 2, label: "Spotify", counterparty: "SPOTIFY", expectedAmount: -10.99,
+                                dueDate: "2026-07-28", categoryId: 4, categoryName: "Abonnements", categoryColor: "#6366F1"),
+            RecurringOccurrence(seriesId: 1, label: "Netflix", counterparty: "NETFLIX.COM", expectedAmount: -15.49,
+                                dueDate: "2026-08-05", categoryId: 4, categoryName: "Abonnements", categoryColor: "#6366F1"),
         ]
     }
 

@@ -86,9 +86,15 @@ final class AppState {
         isDemo ? DemoSettingsDataSource() : LiveSettingsDataSource(api: api)
     }
 
+    /// One demo store per app launch so create/edit/delete/categorize actions stay consistent
+    /// across every screen that requests a Budget data source (hub, inbox, spending, recurring…).
+    /// `@ObservationIgnored` because `@Observable` would otherwise turn this into a computed
+    /// property, which can't be `lazy`; SwiftUI doesn't need to observe this reference itself.
+    @ObservationIgnored private lazy var demoBudgetStore = DemoBudgetStore()
+
     /// Budget-tab data source: mock in the demo build, the live API otherwise.
     func makeBudgetDataSource() -> BudgetDataSource {
-        isDemo ? DemoBudgetDataSource() : LiveBudgetDataSource(api: api)
+        isDemo ? DemoBudgetDataSource(store: demoBudgetStore) : LiveBudgetDataSource(api: api)
     }
 
     /// Bank-sync data source: mock in the demo build, the live API otherwise.

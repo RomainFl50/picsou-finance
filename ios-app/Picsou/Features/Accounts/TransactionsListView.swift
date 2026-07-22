@@ -56,7 +56,11 @@ struct TransactionsListView: View {
             }
             await vm?.load()
         }
-        .sheet(item: $selected) { TransactionDetailSheet(tx: $0) }
+        .sheet(item: $selected) { tx in
+            TransactionDetailSheet(tx: tx, categorization: appState.makeBudgetDataSource()) { _ in
+                Task { await vm?.load() }
+            }
+        }
         .sheet(isPresented: $showAddCash) {
             AddCashView(accountId: accountId, dataSource: appState.makeAccountsDataSource()) {
                 Task { await vm?.load() }
@@ -150,9 +154,24 @@ func signedAmount(_ amount: Decimal) -> String {
     return amount >= 0 ? "+\(base)" : base
 }
 
+/// Transaction detail. The "Catégorie" row is always shown (not just when set) and tappable —
+/// pushes `CategoryPickerView` within this sheet's own `NavigationStack` (never a nested sheet,
+/// per docs/briefs/2026-07-22-budget-ios-redesign-design.md §0.3) and updates optimistically.
 struct TransactionDetailSheet: View {
-    let tx: Transaction
+    let categorization: BudgetDataSource
+    var onChanged: (Transaction) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    @State private var tx: Transaction
+    @State private var categories: [Category] = []
+    @State private var categorizationError: String?
+
+    init(tx: Transaction, categorization: BudgetDataSource, onChanged: @escaping (Transaction) -> Void) {
+        self._tx = State(initialValue: tx)
+        self.categorization = categorization
+        self.onChanged = onChanged
+    }
 
     var body: some View {
         NavigationStack {
@@ -168,12 +187,16 @@ struct TransactionDetailSheet: View {
                     VStack(spacing: 0) {
                         detailRow("Date", formattedDate)
                         detailRow("Compte", tx.accountName ?? "—")
-                        if let category = tx.categoryName { detailRow("Catégorie", category) }
+                        categoryRow
                         if let type = tx.txType { detailRow("Type", type) }
                         detailRow("Source", tx.manual ? "Manuelle" : "Synchronisée")
                     }
                     .cardOutline()
                     .padding(.top, 8)
+
+                    if let categorizationError {
+                        Text(categorizationError).font(Theme.font(13)).foregroundStyle(Theme.destructive)
+                    }
                 }
                 .padding(16)
             }
@@ -181,6 +204,43 @@ struct TransactionDetailSheet: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Fermer") { dismiss() } } }
         }
         .presentationDetents([.medium, .large])
+        .task { categories = (try? await categorization.categories()) ?? [] }
+    }
+
+    private var categoryRow: some View {
+        NavigationLink {
+            CategoryPickerView(categories: categories, current: tx.categoryId) { picked in
+                recategorize(to: picked)
+            }
+        } label: {
+            HStack {
+                Text("Catégorie").font(Theme.font(14)).foregroundStyle(Theme.mutedForeground)
+                Spacer()
+                if let name = tx.categoryName {
+                    Text(name).font(Theme.font(14, .semibold)).foregroundStyle(Theme.foreground)
+                } else {
+                    Text("Non catégorisée").font(Theme.font(14, .semibold)).foregroundStyle(Theme.mutedForeground)
+                }
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.mutedForeground)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func recategorize(to category: Category) {
+        let previous = tx
+        tx = tx.categorized(as: category.id, name: category.name)
+        categorizationError = nil
+        Task {
+            do {
+                try await categorization.categorize(transactionId: tx.id, categoryId: category.id)
+                onChanged(tx)
+            } catch {
+                tx = previous
+                categorizationError = "Impossible de changer la catégorie. Réessaie."
+            }
+        }
     }
 
     private var formattedDate: String {

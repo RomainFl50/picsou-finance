@@ -37,7 +37,7 @@ struct FamilyView: View {
     private func memberRow(_ member: FamilyMember) -> some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(Color.account(member.avatarColor ?? "#6366F1"))
+                .fill(Color.account(member.avatarColor ?? Theme.fallbackColorHex))
                 .frame(width: 38, height: 38)
                 .overlay(
                     Text(initials(member.displayName))

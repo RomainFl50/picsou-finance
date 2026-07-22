@@ -42,6 +42,12 @@ final class APIClient: @unchecked Sendable {
         try decode(try await requestData(path: path, query: [], method: "PUT", body: encode(body)))
     }
 
+    /// PUT a body to an endpoint that returns no content (204), ignoring the response.
+    @discardableResult
+    func putVoid<B: Encodable>(_ path: String, body: B) async throws -> Data {
+        try await requestData(path: path, query: [], method: "PUT", body: encode(body))
+    }
+
     func patch<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
         try decode(try await requestData(path: path, query: [], method: "PATCH", body: encode(body)))
     }

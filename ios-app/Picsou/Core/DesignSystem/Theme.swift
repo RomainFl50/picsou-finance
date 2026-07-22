@@ -36,6 +36,11 @@ enum Theme {
     static let positive = Color(oklch: 0.596, 0.145, 163.225)
     static let positiveSurface = Color(oklch: 0.696, 0.17, 162.48, opacity: 0.14)
 
+    /// Fallback hex for a category/account dot when the server didn't send a color (indigo-500,
+    /// matches the web app's own fallback). Pass to `Color.account(_:)` — kept as a hex string,
+    /// not a `Color`, since every call site already does `Color.account(x ?? Theme.fallbackHex)`.
+    static let fallbackColorHex = "#6366f1"
+
     // MARK: Radii (from --radius = 10px, matched to the templates)
 
     enum Radius {

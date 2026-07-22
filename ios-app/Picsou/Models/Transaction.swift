@@ -11,21 +11,40 @@ struct Transaction: Decodable, Identifiable, Equatable {
     let nativeCurrency: String?
     let manual: Bool
     let txType: String?
+    let categoryId: Int64?
     let categoryName: String?
     let merchantLabel: String?
+    let merchantBrandId: Int64?
     let counterparty: String?
     let accountId: Int64?
     let accountName: String?
+    /// Populated only while the transaction is uncategorized and the AI job produced a
+    /// suggestion instead of auto-applying it (see `AiJobStatus`/`AiCategorizationMode`).
+    let aiSuggestedCategoryId: Int64?
+    /// 0-100. Nil unless `aiSuggestedCategoryId` is set.
+    let aiConfidence: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, date, description, amount, nativeCurrency
         case manual = "isManual"
-        case txType, categoryName, merchantLabel, counterparty, accountId, accountName
+        case txType, categoryId, categoryName, merchantLabel, merchantBrandId, counterparty
+        case accountId, accountName, aiSuggestedCategoryId, aiConfidence
     }
 
     var displayLabel: String { merchantLabel ?? description }
     var isExpense: Bool { amount < 0 }
     var day: Date? { DateParsing.localDate.date(from: date) }
+    var isCategorized: Bool { categoryId != nil }
+
+    /// Same instance with its category reassigned (optimistic local update after a PUT).
+    func categorized(as categoryId: Int64, name: String) -> Transaction {
+        Transaction(id: id, date: date, description: description, amount: amount,
+                    nativeCurrency: nativeCurrency, manual: manual, txType: txType,
+                    categoryId: categoryId, categoryName: name, merchantLabel: merchantLabel,
+                    merchantBrandId: merchantBrandId, counterparty: counterparty,
+                    accountId: accountId, accountName: accountName,
+                    aiSuggestedCategoryId: nil, aiConfidence: nil)
+    }
 }
 
 /// Body for POST /api/accounts/{id}/transactions (manual cash tx). `amount` sign encodes direction.

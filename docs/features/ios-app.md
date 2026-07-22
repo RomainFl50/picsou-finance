@@ -4,16 +4,24 @@
 
 ## Context
 
-A native SwiftUI iPhone client for a self-hosted Picsou instance, aiming for eventual parity with
-the web app. What shipped as "Phase 1" (OAuth2 + PKCE login, Keychain storage gated by Face ID, a
-read-only dashboard) has since grown well past that: the app now has 5 tabs — Dashboard, Accounts,
-Goals, Budget, Settings (Access keys, Family, Sync, Two-Factor, Appearance, Profile, Security) — with
-a handful of write paths (manual cash transactions, goal CRUD, access-key create/revoke, username/
-password/MFA changes, sync connection retry/delete). It is still mostly read-only relative to the web
-app: budget-envelope editing, categorization rules, recurring/subscriptions, bank/crypto connection
-wizards, CSV import, family member management, and admin/setup are intentionally web-only for now —
-those flows involve third-party credentials, OAuth consent, or CSV parsing that don't fit a short
-native session well.
+A native SwiftUI iPhone client for a self-hosted Picsou instance. The founding assumption changed on
+2026-07-22: this is **not a companion app** to the web frontend — some users will only ever use iOS,
+never open the web app — so every feature area has to stand on its own, not lean on "do it on the
+web" as an acceptable answer. The app has 5 tabs: Dashboard, Accounts, Goals, **Budget**, Settings
+(Access keys, Family, Sync, Two-Factor, Appearance, Profile, Security).
+
+**Budget** is the most complete write-capable surface in the app (redesigned 2026-07-22, see
+[Links](#links) for the ADR): a hub (cycle cashflow + status strip, envelope list, nav rows) pushing
+to a **categorization inbox** (1-tap AI-suggestion accept, confidence-gated bulk-accept, undo),
+**inline categorization** everywhere a transaction appears (including the Accounts tab's transaction
+detail sheet — one `CategoryPickerView`, pushed, reused across the app), envelope **create/edit/
+delete**, a **spending breakdown** with drill-down, **recurring/subscription triage** (confirm/
+ignore/undo via swipe, a "what changed" activity feed, an upcoming-payments calendar), and minimal
+budget **settings** (cycle start day, AI toggle). Deliberately NOT native (per the same "iOS-only
+user" framing, still legitimately web-only): category-tree management, the categorization-rules
+engine UI, bank/crypto connection wizards, CSV import, family member management, and admin/setup —
+these involve third-party credentials, OAuth consent, or file handling that don't fit a phone
+session well, not features the team forgot.
 
 ## How it works
 
