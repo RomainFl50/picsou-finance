@@ -1,7 +1,8 @@
 import Foundation
 
-/// Mirrors backend `TransactionResponse`. `amount` is signed (negative = expense). `isManual`
-/// serializes as JSON key `manual`.
+/// Mirrors backend `TransactionResponse`. `amount` is signed (negative = expense). The Java
+/// `isManual` record field serializes as the JSON key `isManual` (see `Account.manual`'s doc
+/// comment for why) -- verified live against a running backend.
 struct Transaction: Decodable, Identifiable, Equatable {
     let id: Int64
     let date: String
@@ -15,6 +16,12 @@ struct Transaction: Decodable, Identifiable, Equatable {
     let counterparty: String?
     let accountId: Int64?
     let accountName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, date, description, amount, nativeCurrency
+        case manual = "isManual"
+        case txType, categoryName, merchantLabel, counterparty, accountId, accountName
+    }
 
     var displayLabel: String { merchantLabel ?? description }
     var isExpense: Bool { amount < 0 }

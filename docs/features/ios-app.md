@@ -1,14 +1,19 @@
-# Feature: Native iOS app (Phase 1 — auth + read-only dashboard)
+# Feature: Native iOS app
 
-> Last updated: 2026-07-03
+> Last updated: 2026-07-22
 
 ## Context
 
 A native SwiftUI iPhone client for a self-hosted Picsou instance, aiming for eventual parity with
-the web app. **Phase 1** is the vertical slice that proves the whole stack end to end: OAuth2 +
-PKCE login (reusing the existing web login + TOTP), Keychain token storage gated by Face ID, and a
-read-only dashboard. Later phases (accounts/transactions, goals/debts, sync, settings, widgets) each
-get their own spec.
+the web app. What shipped as "Phase 1" (OAuth2 + PKCE login, Keychain storage gated by Face ID, a
+read-only dashboard) has since grown well past that: the app now has 5 tabs — Dashboard, Accounts,
+Goals, Budget, Settings (Access keys, Family, Sync, Two-Factor, Appearance, Profile, Security) — with
+a handful of write paths (manual cash transactions, goal CRUD, access-key create/revoke, username/
+password/MFA changes, sync connection retry/delete). It is still mostly read-only relative to the web
+app: budget-envelope editing, categorization rules, recurring/subscriptions, bank/crypto connection
+wizards, CSV import, family member management, and admin/setup are intentionally web-only for now —
+those flows involve third-party credentials, OAuth consent, or CSV parsing that don't fit a short
+native session well.
 
 ## How it works
 
@@ -28,8 +33,29 @@ backend gained a second, higher-priority `SecurityFilterChain` (`AuthorizationSe
   the in-app browser to the SPA login (`/login?redirect=…`), which runs the untouched password +
   TOTP + Remember-Me flow and bounces back to `/oauth2/authorize`.
 - The single public client `picsou-ios` (PKCE S256, `redirect_uri = picsou://callback`, consent
-  skipped) and its authorizations live **in memory** — sessions drop on backend restart (the device
-  re-authenticates silently); JDBC persistence is the documented later upgrade.
+  skipped) and its authorizations are **JDBC-persisted** (`oauth2_registered_client` /
+  `oauth2_authorization`, V54 migration — added for the remote-MCP OAuth work, see
+  [mcp-oauth-remote.md](./mcp-oauth-remote.md)), so they survive a backend restart.
+- **The refresh grant actually works, but only because of two targeted overrides** — Spring
+  Authorization Server 1.4.5's defaults silently defeat it for a public (secret-less) client like
+  `picsou-ios`, confirmed by decompiling the framework and by a live end-to-end run before the fix
+  (the token response had no `refresh_token` field at all):
+  1. `OAuth2RefreshTokenGenerator.generate()` unconditionally returns `null` for a
+     `ClientAuthenticationMethod.NONE` client, regardless of its registered grant types or
+     `TokenSettings`. `AuthorizationServerConfig.tokenGenerator()` supplies a
+     `DelegatingOAuth2TokenGenerator` with a custom `NativeAppRefreshTokenGenerator` that mints one
+     anyway (same 96-byte key shape, same TTL from the registered client — just without the
+     public-client bypass).
+  2. Even with a token minted, `PublicClientAuthenticationConverter` only recognizes a PKCE-shaped
+     `authorization_code` request (it requires `code_verifier`), so a `NONE`-method client can never
+     authenticate itself on a `refresh_token` grant via any built-in converter — the request falls
+     through anonymous and 302s to `/login`. `PublicClientRefreshTokenAuthenticationConverter` +
+     `PublicClientRefreshTokenAuthenticationProvider` (same file) authenticate by `client_id` alone
+     for that one grant type — the standard RFC 6749 public-client model, where the refresh token
+     itself (rotated on every use, `reuseRefreshTokens(false)`) is the actual credential.
+
+  Regression-tested end-to-end (real filter chain, real Postgres via Testcontainers) by
+  `PublicClientRefreshTokenIntegrationTest`.
 
 ### iOS app (`ios-app/`)
 
@@ -42,9 +68,14 @@ with XcodeGen (not committed).
   in the Keychain (device-only); `BiometricGate` gates entry with Face ID.
 - `APIClient` injects the Bearer token and refreshes once on a 401 (and proactively near expiry)
   via an actor-based single-flight (`TokenRefresher`); on terminal failure it asks `AppState` to
-  sign out.
+  sign out. This refresh path only became a real, working feature with the two backend overrides
+  above — before them, every device force-logged-out roughly every 15 minutes (the access-token
+  TTL) with no refresh to fall back on.
 - The dashboard reads a single `GET /api/dashboard?range=` and renders net worth + PnL, a Swift
   Charts area history chart and allocation donut, accounts/liabilities lists, and goal progress.
+  Accounts (`Features/Accounts/`), Goals (`Features/Goals/`), Budget (`Features/Budget/`), and
+  Settings (`Features/Settings/`) each have their own `Live*DataSource` following the same
+  live/demo-seam pattern as the dashboard.
 
 ### Demo mode
 
@@ -84,17 +115,23 @@ iOS app ──ASWebAuthenticationSession──▶ /oauth2/authorize
         Keychain ──▶ APIClient (Bearer) ──▶ GET /api/dashboard
 ```
 
-## Key files
+### Key files
 
 Backend:
-- `backend/src/main/java/com/picsou/config/AuthorizationServerConfig.java` — AS chain, client, JWK, token customizer
+- `backend/src/main/java/com/picsou/config/AuthorizationServerConfig.java` — AS chain, client, JWK,
+  token customizer, `tokenGenerator()` (refresh-token-for-public-clients override),
+  `PublicClientRefreshTokenAuthenticationConverter`/`Provider` (public-client refresh-grant auth)
 - `backend/src/main/java/com/picsou/config/CookieBridgeAuthenticationFilter.java` — authorize-request auth from the cookie
 - `backend/src/main/java/com/picsou/config/JwtTokenAuthenticator.java` — shared access-token validation (cookie + Bearer + bridge)
 - `backend/src/main/java/com/picsou/config/JwtAuthenticationFilter.java` — cookie + `Bearer` transport on `/api/**`
 - `backend/scripts/verify-oauth-pkce.sh` — curl smoke test of the full flow
 
 iOS (`ios-app/Picsou/`): `App/AppState.swift`, `Core/Auth/{OAuthService,TokenStore,PKCE,BiometricGate}.swift`,
-`Core/Networking/APIClient.swift`, `Core/Config/ServerConfig.swift`, `Features/Dashboard/*`, `Models/*`.
+`Core/Networking/APIClient.swift`, `Core/Config/ServerConfig.swift`, `Features/{Dashboard,Accounts,Goals,Budget,Settings}/*`, `Models/*`.
+
+iOS e2e (`ios-app/PicsouTests/E2E/`): `LiveBackend.swift` (auth fixture against a real backend, reusing
+`OAuthService.authorizeURL`/`.exchange`), `LiveBackendE2ETests.swift` (every `Live*DataSource` against
+a real running instance).
 
 Infra: `docker/nginx.conf` + `frontend/nginx.conf` (`location /oauth2`); `frontend/src/pages/login/*`
 + `frontend/src/lib/utils.ts` (`isOAuthAuthorizeRedirect`).
@@ -107,6 +144,7 @@ Infra: `docker/nginx.conf` + `frontend/nginx.conf` (`location /oauth2`); `fronte
 | HS256 symmetric JWK from `JWT_SECRET` + token customizer | Existing resource-server validates AS tokens unchanged; one signing key | RSA JWKS (would need the API to validate a second key model) |
 | Reuse SPA login via cookie bridge + entry-point redirect | No new login UI, MFA stays 100% server-side | Session-based form login with a re-plumbed TOTP step |
 | `tv` read from the principal snapshot at authorize time | Password change → stale `tv` → API rejects → device logs out (correct revocation) | Reload `tv` on refresh (would defeat revocation) |
+| Custom `tokenGenerator()` + refresh-grant converter/provider for the public client | Spring AS's defaults never issue *or* let a secret-less client redeem a refresh token; the client already carries the OAuth 2.1-recommended mitigation (rotation) | Give `picsou-ios` a client secret (defeats "public native app, no embedded secret"); hand-roll a bearer-refresh endpoint outside the AS (re-fragments the token model) |
 | XcodeGen `project.yml` | Reproducible, plain-text project; no `.pbxproj` churn | Commit the `.xcodeproj` |
 
 ## Gotchas / Pitfalls
@@ -115,25 +153,64 @@ Infra: `docker/nginx.conf` + `frontend/nginx.conf` (`location /oauth2`); `fronte
   the all-in-one and split-compose nginx configs.
 - **`SameSite=Lax` + HTTPS.** The redirect back to `/oauth2/authorize` is a top-level GET (Lax cookies
   are sent). `Secure` cookies require HTTPS in production; local dev needs `SECURE_COOKIES=false`.
-- **In-memory authorizations** drop on backend restart — expected in Phase 1.
+- **A Java record's own `isX` field name is NOT stripped by Jackson**, unlike a classic
+  `getX()`/`isX()` bean accessor. `AccountResponse.isManual` and `TransactionResponse.isManual`
+  serialize as the JSON key `isManual`, not `manual` — the iOS `Account`/`Transaction` models
+  (and their `PicsouTests` mocks) assumed `manual` for a long time, which meant the app could not
+  decode a single real account or transaction. Only caught once `LiveBackendE2ETests` hit a real
+  backend; `MockURLProtocol`-based unit tests can't catch this class of bug because they mock the
+  same (wrong) assumption they're meant to be checking. `GoalProgressResponse.isOnTrack` does NOT
+  have this problem — its Swift property is spelled `isOnTrack` too, so no stripping mismatch exists
+  there either way.
+- **Refresh tokens for a public client need the two `AuthorizationServerConfig` overrides above** —
+  don't assume Spring Authorization Server "just handles" native-app refresh once
+  `authorizationGrantType(REFRESH_TOKEN)` is on the registered client. It silently doesn't.
 - **Money as `Decimal`** decodes from JSON numbers via `Double`; fine for 2-dp display, not exact
   arithmetic.
 - **The `.xcodeproj` is generated** — run `xcodegen generate` after pulling; never edit it by hand.
 - Two active ADRs previously set OAuth2 aside for their scopes (MFA, MCP) — the new ADR scopes those
   conclusions and does not reverse them.
+- **`GET /api/auth/sessions` only lists `PersistentSession` (Remember Me) rows.** The iOS app never
+  sends `rememberMe:true` and authenticates via the OAuth2 AS's Bearer token, not a persistent
+  session — so the app itself never appears in, and can't revoke, its own entry on the Settings >
+  Sessions screen. Logged in `TODO.md` (2026-07-22), not fixed.
 
 ## Tests
 
-Backend (Mockito + AssertJ):
+Backend (Mockito + AssertJ, plus Testcontainers Postgres integration tests):
 - `AuthorizationServerConfigTest` — AS-minted HS256 token validates through the existing resource-server path
 - `JwtTokenAuthenticatorTest`, `JwtAuthenticationFilterTest`, `CookieBridgeAuthenticationFilterTest`
+- `PublicClientRefreshTokenIntegrationTest` — real filter chain, real Postgres: authorize → exchange
+  (refresh_token present) → redeem (200, rotated) → rotated access token works → the rotated-away
+  refresh token is rejected. Self-skips without Docker.
+- `Oauth2ConsentHandshakeIntegrationTest` — the DCR/remote-MCP consent handshake (separate client, separate bug)
 
 iOS (XCTest, run on the simulator):
 - `PKCETests` (incl. the RFC 7636 S256 vector), `DashboardDecodingTests`, `APIClientTests`
   (401→refresh→retry, proactive near-expiry refresh), `DemoDashboardDataSourceTests`
+- `AccountsTests`, `BudgetTests`, `GoalsTests`, `FamilyTests`, `SettingsTests`, `AccessKeysTests` —
+  per-feature decode/demo-source coverage, all against `MockURLProtocol` fixtures
+- **`LiveBackendE2ETests` (`PicsouTests/E2E/`)** — the same `Live*DataSource`s against a REAL running
+  backend instead of mocked JSON: dashboard, accounts+goals CRUD round-trip (including a manual cash
+  transaction), budget, access-key create/list/revoke, family, sync, settings/MFA, and the OAuth
+  refresh grant itself. This is what caught both the refresh-token bug and the `isManual`/`manual`
+  bug above — `MockURLProtocol` tests structurally can't, since they assert against fixtures the same
+  team wrote. Self-skips (`XCTSkip`) unless `PICSOU_E2E_PASSWORD` is set, mirroring the backend's own
+  `@Testcontainers(disabledWithoutDocker = true)` convention. To run for real, against a backend
+  seeded via `APP_USERNAME`/`APP_PASSWORD_HASH` (see `.env.example`):
+  ```sh
+  PICSOU_E2E_BASE_URL=http://localhost:8080 PICSOU_E2E_USERNAME=e2e_admin PICSOU_E2E_PASSWORD=... \
+    xcodebuild test -project Picsou.xcodeproj -scheme Picsou \
+    -destination 'platform=iOS Simulator,name=iPhone 17' \
+    -only-testing:PicsouTests/LiveBackendE2ETests
+  ```
+  The scheme's `PICSOU_E2E_*` environment variables are `$(VAR)` passthroughs (see `project.yml`) —
+  no secret is ever committed; unset, the tests just skip.
 
 ## Links
 
-- ADR: [2026-07-03 OAuth2 Authorization Server for the native app](../decisions/2026-07-03-oauth2-authorization-server-for-native-app.md)
+- ADR: [2026-07-03 OAuth2 Authorization Server for the native app](../decisions/2026-07-03-oauth2-authorization-server-for-native-app.md),
+  [2026-07-22 Override Spring AS's public-client refresh-token defaults](../decisions/2026-07-22-public-client-refresh-token-overrides.md)
 - Related: [2FA (TOTP) and Remember Me](./mfa-and-remember-me.md), [MCP server + scoped access-keys](./mcp-server.md),
+  [Remote-MCP OAuth (JDBC-persisted client/authorization tables)](./mcp-oauth-remote.md),
   [CORS & cookie security](./security-cors-cookies.md)

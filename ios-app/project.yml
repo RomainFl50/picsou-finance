@@ -62,6 +62,15 @@ schemes:
       targets:
         - PicsouTests
       gatherCoverageData: false
+      # Passthrough for PicsouTests/E2E/LiveBackend.swift -- $(VAR) tells Xcode to forward whatever
+      # value the *invoking shell* has for that name, so no secret ever lands in this checked-in
+      # file. Unset (the default): those tests self-skip, exactly like the backend's own
+      # @Testcontainers(disabledWithoutDocker = true) convention. To run for real:
+      #   PICSOU_E2E_PASSWORD=... xcodebuild test -scheme Picsou -only-testing:PicsouTests/LiveBackendE2ETests ...
+      environmentVariables:
+        PICSOU_E2E_BASE_URL: $(PICSOU_E2E_BASE_URL)
+        PICSOU_E2E_USERNAME: $(PICSOU_E2E_USERNAME)
+        PICSOU_E2E_PASSWORD: $(PICSOU_E2E_PASSWORD)
   Picsou Demo:
     build:
       targets:

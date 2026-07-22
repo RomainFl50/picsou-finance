@@ -26,7 +26,7 @@ struct AccessKeyCreateRequest: Encodable {
     let expiresAt: String?
 }
 
-/// The MCP scope allowlist (mirrors backend `mcp.Scopes.ALL`).
+/// The MCP scope allowlist (mirrors backend `mcp.Scopes.ALL` / frontend `ALL_SCOPES`).
 enum McpScope {
     static let all: [(id: String, label: String)] = [
         ("accounts:read", "Comptes — lecture"),
@@ -35,10 +35,22 @@ enum McpScope {
         ("dashboard:read", "Tableau de bord — lecture"),
         ("prices:read", "Cours — lecture"),
         ("family:read", "Famille — lecture"),
+        ("budget:categories-read", "Catégories budgétaires — lecture"),
+        ("budget:rules-read", "Règles de catégorisation — lecture"),
+        ("budget:transactions-read", "Transactions budgétées — lecture"),
+        ("budget:recurring-read", "Abonnements récurrents — lecture"),
+        ("budget:envelopes-read", "Enveloppes budgétaires — lecture"),
+        ("budget:dashboard-read", "Tableau de bord budget — lecture"),
+        ("oauth2:discover", "Découverte OAuth2"),
+        ("oauth2:session-status", "Statut de session OAuth2"),
         ("accounts:write", "Comptes — écriture"),
         ("transactions:write", "Transactions — écriture"),
         ("goals:write", "Objectifs — écriture"),
         ("sync:trigger", "Déclencher une synchro"),
+        ("budget:categories-write", "Catégories budgétaires — écriture"),
+        ("budget:rules-write", "Règles de catégorisation — écriture"),
+        ("budget:transactions-write", "Transactions budgétées — écriture"),
+        ("budget:envelopes-write", "Enveloppes budgétaires — écriture"),
     ]
     static func label(_ id: String) -> String { all.first { $0.id == id }?.label ?? id }
 }

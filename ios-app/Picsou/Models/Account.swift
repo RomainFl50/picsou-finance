@@ -1,7 +1,12 @@
 import Foundation
 
 /// Mirrors backend `AccountResponse` (GET /api/accounts/{id}). Money as `Decimal`. The Java
-/// `isManual` record field serializes as the JSON key `manual`.
+/// `isManual` record field serializes as the JSON key `isManual` -- Jackson does NOT strip the
+/// `is` prefix from a record component's own name (only from classic `getX()`/`isX()` accessor
+/// *method* names on a plain bean), so this is the literal key on the wire. Verified live against
+/// a running backend (POST/GET /api/accounts all return `"isManual"`, never `"manual"`) after this
+/// exact drift broke every real account decode -- the old `manual` mapping only ever "worked"
+/// because `PicsouTests` mocked its own (wrong) assumption instead of the real backend shape.
 struct Account: Decodable, Identifiable, Equatable {
     let id: Int64
     let name: String
@@ -16,12 +21,14 @@ struct Account: Decodable, Identifiable, Equatable {
     let ticker: String?
     let parentAccountId: Int64?
     let debt: DebtInfo?
+    let hidden: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name
         case accountType = "type"
         case provider, currency, currentBalance, currentBalanceEur, lastSyncedAt
-        case manual, color, ticker, parentAccountId, debt
+        case manual = "isManual"
+        case color, ticker, parentAccountId, debt, hidden
     }
 
     var type: AccountType { AccountType(raw: accountType) }

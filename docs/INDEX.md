@@ -53,12 +53,13 @@
 | 2026-07-11 | [Realized P&L: average-cost, computed on the fly](./decisions/2026-07-11-realized-pnl-average-cost-on-the-fly.md) | Active |
 | 2026-07-12 | [Remote-MCP OAuth authorization for third-party clients (claude.ai)](./decisions/2026-07-12-remote-mcp-oauth-authorization.md) | Active |
 | 2026-07-12 | [UI controls follow the shadcn theme radius, not a pill shape](./decisions/2026-07-12-ui-controls-follow-shadcn-theme-radius.md) | Active |
+| 2026-07-22 | [Override Spring Authorization Server's public-client refresh-token defaults](./decisions/2026-07-22-public-client-refresh-token-overrides.md) | Active |
 
 ## Feature notes
 
 | Feature | Last updated | Note |
 |---------|-------------|------|
-| Native iOS app (OAuth2+PKCE auth + read-only dashboard) | 2026-07-03 | [ios-app.md](./features/ios-app.md) |
+| Native iOS app (OAuth2+PKCE auth, dashboard/accounts/goals/budget/settings) | 2026-07-22 | [ios-app.md](./features/ios-app.md) |
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |
 | Remote-MCP OAuth (claude.ai connector) | 2026-07-12 | [mcp-oauth-remote.md](./features/mcp-oauth-remote.md) |

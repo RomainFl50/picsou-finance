@@ -13,12 +13,12 @@ final class AccountsTests: XCTestCase {
         let json = """
         {"id":7,"name":"Livret A","type":"SAVINGS","provider":"CA","currency":"EUR",
          "currentBalance":12000.0,"currentBalanceEur":12000.0,"lastSyncedAt":"2026-07-03T08:05:00Z",
-         "manual":false,"color":"#4F46E5","ticker":null,"parentAccountId":null,"debt":null}
+         "isManual":false,"color":"#4F46E5","ticker":null,"parentAccountId":null,"debt":null,"hidden":false}
         """
         let account = try JSONDecoder.picsou.decode(Account.self, from: Data(json.utf8))
         XCTAssertEqual(account.id, 7)
         XCTAssertEqual(account.type, .savings)
-        XCTAssertFalse(account.manual)                       // JSON key `manual` maps to isManual
+        XCTAssertFalse(account.manual)                       // JSON key `isManual` maps to `manual`
         XCTAssertEqual(account.currentBalanceEur.doubleValue, 12000, accuracy: 0.01)
         XCTAssertNotNil(account.lastSyncedDate)
     }
@@ -26,10 +26,10 @@ final class AccountsTests: XCTestCase {
     func testDecodeTransactions_signedAmountsAndMerchantFallback() throws {
         let json = """
         [{"id":1,"date":"2026-07-01","description":"CARREFOUR 4213","amount":-54.30,
-          "nativeCurrency":"EUR","manual":false,"txType":"WITHDRAWAL","categoryName":"Alimentation",
+          "nativeCurrency":"EUR","isManual":false,"txType":"WITHDRAWAL","categoryName":"Alimentation",
           "merchantLabel":"Carrefour","counterparty":"CARREFOUR","accountId":3,"accountName":"Compte courant"},
          {"id":2,"date":"2026-07-02","description":"VIR SALAIRE","amount":2450.00,
-          "nativeCurrency":"EUR","manual":false,"txType":"DEPOSIT","categoryName":"Revenus",
+          "nativeCurrency":"EUR","isManual":false,"txType":"DEPOSIT","categoryName":"Revenus",
           "merchantLabel":null,"counterparty":null,"accountId":3,"accountName":"Compte courant"}]
         """
         let txs = try JSONDecoder.picsou.decode([Transaction].self, from: Data(json.utf8))
@@ -78,7 +78,7 @@ final class AccountsTests: XCTestCase {
         MockURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
             return MockURLProtocol.status(request, 201, json:
-                #"{"id":42,"date":"2026-07-04","description":"Test","amount":-12.5,"manual":true,"accountId":3,"accountName":"Compte courant"}"#)
+                #"{"id":42,"date":"2026-07-04","description":"Test","amount":-12.5,"isManual":true,"accountId":3,"accountName":"Compte courant"}"#)
         }
 
         let request = TransactionRequest(date: "2026-07-04", description: "Test", amount: -12.5,

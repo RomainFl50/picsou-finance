@@ -17,19 +17,32 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcOperations;
+import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.crypto.keygen.Base64StringKeyGenerator;
+import org.springframework.security.crypto.keygen.StringKeyGenerator;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
+import org.springframework.security.oauth2.core.OAuth2RefreshToken;
+import org.springframework.security.oauth2.core.OAuth2Token;
+import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationServerMetadata;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
@@ -39,20 +52,30 @@ import org.springframework.security.oauth2.server.authorization.settings.Authori
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
 import org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat;
 import org.springframework.security.oauth2.server.authorization.settings.TokenSettings;
+import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
+import org.springframework.security.oauth2.server.authorization.token.JwtGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2AccessTokenGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
 import org.springframework.security.jackson2.SecurityJackson2Modules;
 import org.springframework.security.oauth2.server.authorization.jackson2.OAuth2AuthorizationServerJackson2Module;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationConverter;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
+import org.springframework.util.StringUtils;
 
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -96,7 +119,8 @@ public class AuthorizationServerConfig {
     @Order(1)
     public SecurityFilterChain authorizationServerSecurityFilterChain(
         HttpSecurity http,
-        JwtTokenAuthenticator jwtTokenAuthenticator
+        JwtTokenAuthenticator jwtTokenAuthenticator,
+        RegisteredClientRepository registeredClientRepository
     ) throws Exception {
 
         OAuth2AuthorizationServerConfigurer authorizationServer =
@@ -115,7 +139,21 @@ public class AuthorizationServerConfig {
                 // (OAuth2AuthorizationEndpointFilter#sendAuthorizationConsent); the SPA calls
                 // OAuthConsentController with those same params to resolve what to render.
                 .authorizationEndpoint(authorizationEndpoint -> authorizationEndpoint
-                    .consentPage("/consent")))
+                    .consentPage("/consent"))
+                // Public (secret-less) clients can now be issued a refresh token (see
+                // tokenGenerator() below) but Spring AS's built-in client-authentication converters
+                // still can't redeem one: PublicClientAuthenticationConverter only activates for a
+                // PKCE-shaped request (matchesPkceTokenRequest — grant_type=authorization_code with
+                // a code_verifier), which a refresh_token grant never has, so a NONE-method client
+                // falls through to anonymous and gets bounced to /login. Confirmed by decompiling
+                // spring-security-oauth2-authorization-server 1.4.5. These two prepend onto the
+                // framework's default converter/provider list (OAuth2ClientAuthenticationConfigurer
+                // .init() does authenticationProviders.addAll(0, custom) — custom entries are tried
+                // FIRST), and both return null/defer for anything that isn't a refresh_token grant
+                // for a NONE-method client, so the authorization_code+PKCE path is untouched.
+                .clientAuthentication(clientAuthentication -> clientAuthentication
+                    .authenticationConverter(new PublicClientRefreshTokenAuthenticationConverter())
+                    .authenticationProvider(new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository))))
             .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
             // The token endpoint is called by the native app with PKCE (no browser session);
             // the authorize endpoint is a GET. CSRF protection is not applicable to this chain.
@@ -339,6 +377,136 @@ public class AuthorizationServerConfig {
                 }
             }
         };
+    }
+
+    /**
+     * Overrides Spring Authorization Server's default token-generation chain to actually issue a
+     * refresh token to {@code picsou-ios}.
+     *
+     * <p><b>Root cause (confirmed by decompiling {@code spring-security-oauth2-authorization-server}
+     * 1.4.5):</b> the framework's built-in {@code OAuth2RefreshTokenGenerator} unconditionally
+     * returns {@code null} — silently, no log, no error — whenever
+     * {@code isPublicClientForAuthorizationCodeGrant(context)} is true, i.e. whenever the requesting
+     * client's {@link ClientAuthenticationMethod} is {@link ClientAuthenticationMethod#NONE}. That is
+     * exactly {@code picsou-ios} ({@link #buildIosClient}): a public, secret-less PKCE client by
+     * design (RFC 8252 §8.4 — a native app cannot hold a confidential secret). This held true
+     * regardless of the client's own {@code authorization_grant_types} row (which correctly listed
+     * {@code refresh_token}) and regardless of {@link TokenSettings#getRefreshTokenTimeToLive()} —
+     * the JWT access token (15 min TTL) was the only token ever returned, so every device was force
+     * logged out roughly every 15 minutes with the app's own {@code TokenRefresher} never getting a
+     * refresh token to use. Verified end-to-end against a live instance (login → authorize → token
+     * exchange) before this fix: the token response had no {@code refresh_token} field.
+     *
+     * <p>Spring's default is a defensible security posture for browser-based public clients (a
+     * refresh token sitting in JS-accessible storage is a bigger prize than a short-lived access
+     * token), but it is overly broad for a native app storing the token in the Keychain, and this
+     * client already carries the mitigation OAuth 2.1 asks for on public-client refresh tokens:
+     * rotation on every use ({@code reuseRefreshTokens(false)}). The JDBC authorization store and
+     * its Jackson mix-ins were already built anticipating a working refresh flow (see the comments
+     * on {@link #authorizationService} and {@link #jwtTokenCustomizer()}) — this bean is what makes
+     * that flow actually run.
+     *
+     * <p>Reuses the framework's own {@link JwtGenerator} (with {@link #jwtTokenCustomizer()}) and
+     * {@link OAuth2AccessTokenGenerator} for the other two token types; only the refresh-token leg is
+     * replaced, with {@link NativeAppRefreshTokenGenerator} below — a copy of
+     * {@code OAuth2RefreshTokenGenerator}'s real generation logic (96-byte URL-safe base64 key, TTL
+     * from the registered client) minus the public-client bypass.
+     */
+    @Bean
+    public OAuth2TokenGenerator<OAuth2Token> tokenGenerator(
+        JWKSource<SecurityContext> jwkSource,
+        OAuth2TokenCustomizer<JwtEncodingContext> jwtTokenCustomizer
+    ) {
+        JwtEncoder jwtEncoder = new NimbusJwtEncoder(jwkSource);
+        JwtGenerator jwtGenerator = new JwtGenerator(jwtEncoder);
+        jwtGenerator.setJwtCustomizer(jwtTokenCustomizer);
+        return new DelegatingOAuth2TokenGenerator(
+            jwtGenerator, new OAuth2AccessTokenGenerator(), new NativeAppRefreshTokenGenerator());
+    }
+
+    /** See {@link #tokenGenerator} for why this exists instead of the framework default. */
+    private static final class NativeAppRefreshTokenGenerator implements OAuth2TokenGenerator<OAuth2RefreshToken> {
+        private final StringKeyGenerator refreshTokenGenerator =
+            new Base64StringKeyGenerator(Base64.getUrlEncoder().withoutPadding(), 96);
+
+        @Override
+        public OAuth2RefreshToken generate(OAuth2TokenContext context) {
+            if (!OAuth2TokenType.REFRESH_TOKEN.equals(context.getTokenType())) {
+                return null;
+            }
+            Instant issuedAt = Instant.now();
+            Instant expiresAt = issuedAt.plus(context.getRegisteredClient().getTokenSettings().getRefreshTokenTimeToLive());
+            return new OAuth2RefreshToken(refreshTokenGenerator.generateKey(), issuedAt, expiresAt);
+        }
+    }
+
+    /**
+     * Recognizes a {@code grant_type=refresh_token} request carrying a bare {@code client_id} — the
+     * only shape a {@link ClientAuthenticationMethod#NONE} client can ever send, since it has no
+     * secret and PKCE's {@code code_verifier} does not apply outside the authorization_code grant.
+     * Defers ({@code null}) to the framework's own converters for every other request shape,
+     * including a client that supplies an {@code Authorization} header (Basic or otherwise) — this
+     * app has no confidential clients today, but that check keeps the converter honest if one is
+     * ever added. See {@link #authorizationServerSecurityFilterChain} for how this is wired in and
+     * why it's needed.
+     */
+    private static final class PublicClientRefreshTokenAuthenticationConverter implements AuthenticationConverter {
+        @Override
+        public Authentication convert(HttpServletRequest request) {
+            if (!"POST".equals(request.getMethod())
+                || StringUtils.hasText(request.getHeader(HttpHeaders.AUTHORIZATION))) {
+                return null;
+            }
+            String grantType = request.getParameter(OAuth2ParameterNames.GRANT_TYPE);
+            if (!AuthorizationGrantType.REFRESH_TOKEN.getValue().equals(grantType)) {
+                return null;
+            }
+            String clientId = request.getParameter(OAuth2ParameterNames.CLIENT_ID);
+            if (!StringUtils.hasText(clientId)) {
+                return null;
+            }
+            return new OAuth2ClientAuthenticationToken(clientId, ClientAuthenticationMethod.NONE, null, Map.of());
+        }
+    }
+
+    /**
+     * Authenticates the token from {@link PublicClientRefreshTokenAuthenticationConverter} by
+     * {@code client_id} alone — the standard RFC 6749 public-client model, where the refresh token
+     * itself (high-entropy, rotated on every use per {@code reuseRefreshTokens(false)} in
+     * {@link #buildIosClient}) is the real credential. Returns {@code null} (defer) for any token
+     * whose method isn't {@code NONE}, so it never shadows the framework's confidential-client
+     * providers. Rejects a client that isn't registered, doesn't allow {@code NONE} auth, or doesn't
+     * carry the {@code refresh_token} grant type — the same three checks
+     * {@code PublicClientAuthenticationProvider} makes, minus the PKCE verification that only makes
+     * sense for an authorization_code exchange.
+     */
+    private static final class PublicClientRefreshTokenAuthenticationProvider implements AuthenticationProvider {
+        private final RegisteredClientRepository registeredClientRepository;
+
+        PublicClientRefreshTokenAuthenticationProvider(RegisteredClientRepository registeredClientRepository) {
+            this.registeredClientRepository = registeredClientRepository;
+        }
+
+        @Override
+        public Authentication authenticate(Authentication authentication) {
+            OAuth2ClientAuthenticationToken token = (OAuth2ClientAuthenticationToken) authentication;
+            if (!ClientAuthenticationMethod.NONE.equals(token.getClientAuthenticationMethod())) {
+                return null;
+            }
+            String clientId = String.valueOf(token.getPrincipal());
+            RegisteredClient registeredClient = registeredClientRepository.findByClientId(clientId);
+            if (registeredClient == null
+                || !registeredClient.getClientAuthenticationMethods().contains(ClientAuthenticationMethod.NONE)
+                || !registeredClient.getAuthorizationGrantTypes().contains(AuthorizationGrantType.REFRESH_TOKEN)) {
+                throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_CLIENT);
+            }
+            return new OAuth2ClientAuthenticationToken(registeredClient, ClientAuthenticationMethod.NONE, null);
+        }
+
+        @Override
+        public boolean supports(Class<?> authentication) {
+            return OAuth2ClientAuthenticationToken.class.isAssignableFrom(authentication);
+        }
     }
 
     @Bean

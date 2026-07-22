@@ -20,6 +20,10 @@ final class OAuthService {
     private let clientId = "picsou-ios"
     private let redirectURI = "picsou://callback"
     private let callbackScheme = "picsou"
+    /// Requested for documentation purposes only: the resource server's `type=access` validation
+    /// path (`JwtTokenAuthenticator.authenticate`) never reads the `scope` claim — only the
+    /// `mcp`-typed tokens minted for `/mcp` clients are scope-checked. The app's own read/write
+    /// calls are gated by role, not by this value.
     private let scope = "read"
 
     init(serverConfig: ServerConfig, session: URLSession = .shared) {
@@ -51,7 +55,10 @@ final class OAuthService {
 
     // MARK: - Authorize
 
-    private func authorizeURL(base: URL, challenge: String, state: String) throws -> URL {
+    /// Internal (not `private`) so `@testable import` can reuse the exact production URL-building
+    /// and token-exchange code from an e2e test that supplies its own authorization code — see
+    /// `PicsouTests/E2E/LiveBackend.swift`.
+    func authorizeURL(base: URL, challenge: String, state: String) throws -> URL {
         var comps = URLComponents(url: base.appendingPathComponent("oauth2/authorize"),
                                   resolvingAgainstBaseURL: false)
         comps?.queryItems = [
@@ -106,7 +113,7 @@ final class OAuthService {
 
     // MARK: - Token endpoint
 
-    private func exchange(base: URL, code: String, verifier: String) async throws -> TokenSet {
+    func exchange(base: URL, code: String, verifier: String) async throws -> TokenSet {
         try await postToken(base: base, form: [
             "grant_type": "authorization_code",
             "code": code,

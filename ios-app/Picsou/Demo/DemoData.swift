@@ -112,7 +112,8 @@ enum DemoData {
                            lastSyncedAt: "2026-07-03T08:05:00Z", manual: false, color: "#DC2626",
                            ticker: nil, parentAccountId: nil,
                            debt: DebtInfo(borrowedAmount: 31000, interestRate: 1.9, monthlyPayment: 650,
-                                          lenderName: "Crédit Agricole", startDate: "2022-01-01", endDate: "2045-01-01"))
+                                          lenderName: "Crédit Agricole", startDate: "2022-01-01", endDate: "2045-01-01"),
+                           hidden: false)
         }
         let index = max(0, min(Int(id) - 1, assets.count - 1))
         let a = assets[index]
@@ -120,7 +121,7 @@ enum DemoData {
                        provider: provider(for: a.type), currency: "EUR",
                        currentBalance: Decimal(a.balance), currentBalanceEur: Decimal(a.balance),
                        lastSyncedAt: "2026-07-03T08:05:00Z", manual: false, color: a.color,
-                       ticker: nil, parentAccountId: nil, debt: nil)
+                       ticker: nil, parentAccountId: nil, debt: nil, hidden: false)
     }
 
     static func holdings(id: Int64) -> [Holding] {
