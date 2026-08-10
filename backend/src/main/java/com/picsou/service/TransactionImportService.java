@@ -149,7 +149,7 @@ public class TransactionImportService {
         return account;
     }
 
-    private static String readContent(MultipartFile file) {
+    private String readContent(MultipartFile file) {
         try {
             String content = new String(file.getBytes(), StandardCharsets.UTF_8);
             if (content.isBlank()) {
@@ -157,7 +157,10 @@ public class TransactionImportService {
             }
             return content;
         } catch (IOException ex) {
-            throw new IllegalArgumentException("Could not read the uploaded file");
+            // The 400 stays deliberately vague; the cause is what tells an operator whether the
+            // upload was truncated or the temp store is broken.
+            log.warn("Could not read uploaded transaction file '{}'", file.getOriginalFilename(), ex);
+            throw new IllegalArgumentException("Could not read the uploaded file", ex);
         }
     }
 
@@ -169,8 +172,8 @@ public class TransactionImportService {
         if (dto != null && dto.decimal() != null) {
             try {
                 decimal = DecimalStyle.valueOf(dto.decimal().trim().toUpperCase());
-            } catch (IllegalArgumentException ignored) {
-                // keep the DOT default
+            } catch (IllegalArgumentException ex) {
+                log.warn("Unknown CSV decimal style '{}' — falling back to DOT", dto.decimal());
             }
         }
 
@@ -179,7 +182,7 @@ public class TransactionImportService {
         try {
             DateTimeFormatter.ofPattern(dateFormat);
         } catch (IllegalArgumentException ex) {
-            throw new IllegalArgumentException("Invalid date format pattern '" + dateFormat + "'");
+            throw new IllegalArgumentException("Invalid date format pattern '" + dateFormat + "'", ex);
         }
         return new CsvDialect(delimiter, decimal, dateFormat);
     }
