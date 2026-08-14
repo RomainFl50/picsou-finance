@@ -31,6 +31,7 @@ class DashboardServiceLiabilityTest {
     @Mock DebtRepository debtRepository;
     @Mock LoanAmortizationService loanAmortizationService;
     @Mock AccountService accountService;
+    @Mock AccountAccessResolver accessResolver;
 
     DashboardService dashboardService;
 
@@ -39,7 +40,8 @@ class DashboardServiceLiabilityTest {
         dashboardService = new DashboardService(
             accountRepository, goalService, goalRepository,
             priceService, holdingRepository, historyService,
-            debtRepository, loanAmortizationService, accountService
+            debtRepository, loanAmortizationService, accountService,
+            accessResolver
         );
     }
 
