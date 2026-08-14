@@ -5,7 +5,7 @@
 
 ## Overview
 
-Picsou is a self-hosted personal-finance dashboard for an individual or a small family. It aggregates accounts from banks (PSD2/scraping), brokers (Trade Republic), crypto exchanges (Binance), and on-chain wallets (BTC/ETH/SOL); tracks balances over time, computes net worth, and helps members set savings goals, manage debts, and export their data. Each authenticated `AppUser` is linked to a `FamilyMember`, and every financial row is scoped by `member_id` with optional sharing.
+Picsou is a self-hosted personal-finance dashboard for an individual or a small family. It aggregates accounts from banks (PSD2/scraping), brokers (Trade Republic), crypto exchanges (Binance, Meria), and on-chain wallets (BTC/ETH/SOL); tracks balances over time, computes net worth, and helps members set savings goals, manage debts, and export their data. Each authenticated `AppUser` is linked to a `FamilyMember`, and every financial row is scoped by `member_id` with optional sharing.
 
 ## Backend modules
 
@@ -15,7 +15,9 @@ com.picsou/
 │                   BalanceSnapshot, Goal, GoalManualContribution, GoalContributor,
 │                   Debt, RealEstateMetadata, WalletAddress;
 │                   integrations: Requisition, TradeRepublicSession, CryptoExchangeSession,
-│                   FinarySession, BoursoSession, BourseDirectSession, PriceSnapshot;
+│                   FinarySession, BoursoSession, BourseDirectSession, DegiroSession,
+│                   AmundiSession,
+│                   PriceSnapshot;
 │                   identity & sharing: AppUser, FamilyMember, UserRole, SharingSettings,
 │                   SharingLevel, SharedResource, UserMfa, UserMfaRecoveryCode,
 │                   PersistentSession;
@@ -27,7 +29,8 @@ com.picsou/
 │                   SchedulerService;
 │                   integrations: SyncService, TradeRepublicSyncService,
 │                   CryptoExchangeSyncService, WalletSyncService, BoursoSyncService,
-│                   BourseDirectSyncService,
+│                   BourseDirectSyncService, DegiroSyncService, DegiroSessionStatusWriter,
+│                   AmundiSyncService,
 │                   FinaryImportService, FinaryApiSyncService;
 │                   identity & family: UserContext, FamilyService, FamilyViewService,
 │                   MfaService, PersistentSessionService, ReAuthService;
@@ -36,21 +39,23 @@ com.picsou/
 │                   EnableBankingKeyPairService
 ├── controller/     REST controllers under /api/ — auth, mfa, sessions, family,
 │                   accounts, transactions, holdings, goals, debts, dashboard, history,
-│                   sync, tr, bourso, bourse-direct, crypto-exchange, wallet, finary-import,
-│                   finary-api-sync, setup, admin, admin-mfa, me-export, price
+│                   sync, tr, bourso, bourse-direct, degiro, amundi, crypto-exchange, wallet,
+│                   finary-import, finary-api-sync, setup, admin, admin-mfa, me-export, price
 ├── dto/            Request/response records (records are the convention)
 ├── port/           Port interfaces (BankConnectorPort, PriceProviderPort,
 │                   TradeRepublicPort, CryptoExchangePort, WalletPort, BoursoPort,
-│                   BourseDirectPort)
+│                   BourseDirectPort, DegiroPort, AmundiPort)
 ├── adapter/        Port implementations + util/BitcoinKeyUtils
 │   ├── EnableBankingBankConnector (bank sync)
 │   ├── PowensBankConnector (Powens / Budget Insight — experimental, disabled in 1.0.0)
 │   ├── BoursoAdapter (BoursoBank — disabled in 1.0.0)
+│   ├── DegiroAdapter (DEGIRO — compte-titres sync; requires `degiro-auth` uncommented in docker-compose.yml)
 │   ├── CoinGeckoPriceProvider, YahooFinancePriceProvider (prices)
 │   ├── OpenFigiIsinConverter (ISIN → Yahoo ticker)
 │   ├── TradeRepublicAdapter (broker)
 │   ├── BourseDirectAdapter (broker sidecar)
-│   ├── BinanceAdapter (crypto exchange)
+│   ├── AmundiAdapter (employee-savings sidecar)
+│   ├── BinanceAdapter, MeriaAdapter (crypto exchanges)
 │   ├── BitcoinWalletAdapter, EvmWalletAdapter, SolanaWalletAdapter (on-chain)
 │   └── util/BitcoinKeyUtils (BIP32 key derivation, Base58Check, Bech32)
 ├── finary/         Finary import + API-sync subsystem (client, DTOs, SyncSessionData,
@@ -100,10 +105,12 @@ Enable Banking (PSD2) is the canonical `BankConnectorPort` in 1.0.0. The Powens 
 ### 2. Price refresh
 
 ```
-SchedulerService (cron) → PriceService → PriceProviderPort → CoinGecko / Yahoo Finance → 15-min cache
+SchedulerService (hourly) → PriceService → PriceProviderPort → CoinGecko / Yahoo Finance
+                                        ↘ 15-min in-memory cache
+                                        ↘ price_snapshot (last known price, ≤ 7 days)
 ```
 
-`SchedulerService` triggers daily refresh. `PriceService` holds a 15-minute in-memory cache. CoinGecko for crypto, Yahoo Finance for stocks/ETFs.
+`SchedulerService.refreshPrices` runs hourly over one global ticker set (account tickers ∪ holding tickers). CoinGecko for crypto, Yahoo Finance for stocks/ETFs. On-demand reads resolve a whole set in one call and degrade in three steps — cache, batched provider call, last recorded price — so a rate-limited provider makes prices *older*, not absent. See [ADR 2026-08-01](./decisions/2026-08-01-last-known-price-fallback.md).
 
 ### 3. Trade Republic
 
@@ -127,15 +134,33 @@ transactions, then atomically replaces holdings and writes the daily account
 snapshot. The encrypted browser state and observable job status live in
 `BourseDirectSession`. See the [Bourse Direct ADR](./decisions/2026-07-21-bourse-direct-isolated-atomic-sync.md).
 
-### 5. Crypto exchange
+### 5. Amundi Épargne Salariale
+
+```text
+Client -> AmundiController -> AmundiSyncService -> AmundiPort
+       -> AmundiAdapter -> internal FastAPI/Playwright sidecar -> Amundi espace épargnant
+```
+
+Same shape as Bourse Direct, for a login that is captcha-gated and always
+second-factor protected. The sidecar owns the browser login, the app-push or SMS
+step, and normalization of the `dispositifsMulti` payload; it returns only strict,
+reconciled snapshots. The Java service queues imports, calls upstream outside
+database transactions, then atomically replaces each plan's holdings and writes
+the daily snapshot. One Picsou account per *dispositif*, typed `EMPLOYEE_SAVINGS`.
+Encrypted session and job status live in `AmundiSession`. See the
+[Amundi ADR](./decisions/2026-08-09-amundi-epargne-salariale-sidecar.md).
+
+### 6. Crypto exchange
 
 ```
-Client → CryptoExchangeController → CryptoSyncService → BinanceAdapter → Binance API
+Client → CryptoExchangeController → CryptoExchangeSyncService → CryptoExchangePort → exchange API
+                                                                  ├── BinanceAdapter → Binance API
+                                                                  └── MeriaAdapter   → Meria API
 ```
 
-Binance API credentials encrypted at rest with AES-256-GCM (`CryptoEncryption`). `CRYPTO_ENCRYPTION_KEY` env var required.
+Exchange API credentials are encrypted at rest with AES-256-GCM (`CryptoEncryption`); `CRYPTO_ENCRYPTION_KEY` env var required. Which credentials an exchange needs is declared by its adapter: Binance signs each request with an HMAC over an API secret, Meria authenticates with a single read-only API key and stores a `NULL` secret (`CryptoExchangePort.requiresApiSecret()`).
 
-### 6. Wallet sync
+### 7. Wallet sync
 
 ```
 Client → WalletController → WalletSyncService → WalletPort → blockchain RPCs
@@ -143,7 +168,7 @@ Client → WalletController → WalletSyncService → WalletPort → blockchain 
 
 Three adapters: Bitcoin (Blockstream Esplora, BIP32 xpub/zpub/descriptors), EVM (keyless PublicNode RPCs — one `0x` address fanned out across Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base, Avalanche; native + curated ERC-20 tokens), Solana (RPC + curated SPL tokens). See the [EVM multichain wallets ADR](./decisions/2026-07-17-evm-multichain-wallets.md).
 
-### 7. Dashboard
+### 8. Dashboard
 
 ```
 Client → DashboardController → DashboardService → Account + Snapshot + PriceService aggregation
@@ -151,7 +176,7 @@ Client → DashboardController → DashboardService → Account + Snapshot + Pri
 
 Aggregates all account balances, applies current prices via `PriceService`, computes net worth and allocation breakdown.
 
-### 8. Goals
+### 9. Goals
 
 ```
 Client → GoalController → GoalService → Goal + GoalMonthOverride repos
@@ -159,7 +184,7 @@ Client → GoalController → GoalService → Goal + GoalMonthOverride repos
 
 Savings goals with deadlines, linked to accounts via M:N join table (`goal_account`). Monthly tracking with optional per-month overrides.
 
-### 9. First-launch setup wizard
+### 10. First-launch setup wizard
 
 ```
 Browser → SetupFilter → /setup → SetupController → SetupService → AppSetting / SetupAudit
@@ -170,7 +195,7 @@ Browser → SetupFilter → /setup → SetupController → SetupService → AppS
 
 `SetupFilter` redirects every request to `/setup` until `SetupState.completed = true`. The wizard collects admin credentials, security settings (CORS, encryption key), and per-integration credentials. Each step is appended to `setup_audit` (actor, IP, timestamp). After completion, the filter becomes a no-op.
 
-### 10. Authentication & MFA
+### 11. Authentication & MFA
 
 ```
 POST /api/auth/login → AuthController → (if 2FA) issue mfa_challenge JWT → 401 + cookie
@@ -182,7 +207,7 @@ Every request → JwtAuthenticationFilter → check tv claim vs AppUser.tokenVer
 
 Password change in `AuthController.changePassword` bumps `AppUser.tokenVersion`, revokes all `PersistentSession`s for the user, clears the persistent cookie, and re-issues fresh access/refresh cookies.
 
-### 11. Family sharing
+### 12. Family sharing
 
 ```
 Member viewing dashboard → DashboardService scopes by UserContext.currentMemberId()
@@ -193,7 +218,7 @@ Family dashboard → FamilyViewController → FamilyViewService
 
 Admins can use `/admin/impersonate/{memberId}` to view another member's data; `UserContext.getMemberIdOverride()` returns the override; audit trail in `setup_audit`.
 
-### 12. GDPR data export
+### 13. GDPR data export
 
 ```
 POST /api/me/export/reauth → ReAuthService verifies password (+ TOTP if enabled)
@@ -203,7 +228,7 @@ GET  /api/me/export        → DataExportService runs each EntityExporter
 
 Wrapped in a read-only Spring transaction; rate-limited via `RateLimitConfig`.
 
-### 13. Loan amortization
+### 14. Loan amortization
 
 ```
 GET /api/accounts/{id}/loan-schedule → AccountController → LoanAmortizationService
@@ -217,13 +242,16 @@ Computed on the fly from `Debt` (principal, rate, term, fees) — no per-month r
 | Service | Usage | Config |
 |---------|-------|--------|
 | PostgreSQL 16 | Persistence | `SPRING_DATASOURCE_URL` |
-| Flyway | Schema migrations | `db/migration/` (latest V63) |
+| Flyway | Schema migrations | `db/migration/` (latest V74) |
 | Enable Banking | PSD2 bank sync (optional) | `ENABLEBANKING_*` |
 | Powens / Budget Insight | Scraping bank sync (**experimental, disabled in 1.0.0**) | `POWENS_*` |
 | Trade Republic | Broker sync via Python microservice | `TR_AUTH_URL` |
 | Bourse Direct | PEA/CTO sync via internal Python sidecar | `BOURSE_DIRECT_AUTH_URL` |
+| Amundi Épargne Salariale | PEE/PEG/PERCO/PER sync via internal Python sidecar | `AMUNDI_AUTH_URL` |
 | BoursoBank | Bank sync via Python sidecar (**disabled in 1.0.0**) | `BOURSO_AUTH_URL` |
+| DEGIRO | Compte-titres sync via internal Python sidecar (sidecar off by default — uncomment in `docker-compose.yml`) | `DEGIRO_AUTH_URL` |
 | Binance | Crypto exchange balances | Via CryptoExchangePort |
+| Meria | Crypto exchange balances (wallets + staking + lending) | Via CryptoExchangePort |
 | CoinGecko | Crypto prices (free) | No config |
 | Yahoo Finance | Stock/ETF prices (free) | No config |
 | PublicNode EVM RPCs | EVM wallet balances (Ethereum, BNB Chain, Polygon, Arbitrum, Optimism, Base, Avalanche) — native + curated ERC-20 | No config (keyless) |

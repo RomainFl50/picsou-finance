@@ -15,28 +15,45 @@ vi.mock('react-i18next', () => ({
  * Radix's Avatar detects load failure via a synthetic `new Image()` instance,
  * not the rendered <img> element -- stub the global so tests can drive both
  * the success and failure paths deterministically.
+ *
+ * Its `load` handler reads `event.currentTarget` and re-derives the status from
+ * `complete`/`naturalWidth`, so listeners must be called with an event-shaped
+ * argument -- calling them bare throws inside Radix instead of failing the assertion.
  */
 class MockImage {
   onload: (() => void) | null = null
   onerror: (() => void) | null = null
   complete = false
   naturalWidth = 0
+  private listeners = new Map<string, Set<(event: { currentTarget: MockImage }) => void>>()
   private _src = ''
   private handlers: Record<string, Set<() => void>> = { load: new Set(), error: new Set() }
 
-  // Radix Avatar (@radix-ui/react-avatar ≥1.1) subscribes via addEventListener, and only
-  // after it has already assigned `src` — so dispatch on both the src set and each late
-  // listener registration. Firing 'load'/'error' more than once is idempotent for Radix.
-  addEventListener(type: string, handler: () => void) {
-    this.handlers[type]?.add(handler)
-    if (this._src) this.dispatch()
+  addEventListener(type: string, listener: (event: { currentTarget: MockImage }) => void) {
+    const listeners = this.listeners.get(type) ?? new Set()
+    listeners.add(listener)
+    this.listeners.set(type, listeners)
   }
-  removeEventListener(type: string, handler: () => void) {
-    this.handlers[type]?.delete(handler)
+
+  removeEventListener(type: string, listener: (event: { currentTarget: MockImage }) => void) {
+    this.listeners.get(type)?.delete(listener)
   }
   set src(value: string) {
     this._src = value
-    this.dispatch()
+    this.complete = false
+    this.naturalWidth = 0
+    queueMicrotask(() => {
+      this.complete = true
+      if (value.includes('broken')) {
+        this.naturalWidth = 0
+        this.onerror?.()
+        this.listeners.get('error')?.forEach(listener => listener({ currentTarget: this }))
+      } else {
+        this.naturalWidth = 1
+        this.onload?.()
+        this.listeners.get('load')?.forEach(listener => listener({ currentTarget: this }))
+      }
+    })
   }
   get src() {
     return this._src
@@ -92,6 +109,29 @@ describe('AccountCard', () => {
 
   it('renders the bank logo image when logoUrl loads successfully', async () => {
     const account = { ...baseAccount, logoUrl: 'https://logos.example/bnp.png' }
+    const { container } = render(<AccountCard account={account} />)
+
+    await waitFor(() => {
+      const img = container.querySelector('img') as HTMLImageElement
+      expect(img).toHaveAttribute('src', 'https://logos.example/bnp.png')
+    })
+  })
+
+  it.each([
+    ['MERIA', '/exchanges/meria.svg'],
+    ['Amundi Épargne Salariale', '/providers/amundi.png'],
+  ])('renders the bundled logo for %s, which the connector gives no logoUrl for', async (provider, asset) => {
+    const account = { ...baseAccount, provider, logoUrl: null }
+    const { container } = render(<AccountCard account={account} />)
+
+    await waitFor(() => {
+      const img = container.querySelector('img') as HTMLImageElement
+      expect(img).toHaveAttribute('src', asset)
+    })
+  })
+
+  it('prefers the connector-supplied logoUrl over a bundled one', async () => {
+    const account = { ...baseAccount, provider: 'MERIA', logoUrl: 'https://logos.example/bnp.png' }
     const { container } = render(<AccountCard account={account} />)
 
     await waitFor(() => {

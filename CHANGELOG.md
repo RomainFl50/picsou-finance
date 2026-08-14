@@ -47,6 +47,33 @@ information architecture.
   (`GET /api/merchants/{id}/logo`) fetches logos from DuckDuckGo's keyless icon service behind a
   port/adapter, with an in-memory TTL cache, a per-IP rate limit, and a per-member gate; the
   monogram is always the fallback, and logos never feed categorization.
+- **Amundi Épargne Salariale sync.** Connect an Amundi account and import every
+  funded employee savings plan — PEE/PEG, PERCO, PER Collectif — as its own
+  account, leaving emptied and closed dispositifs out,
+  with each FCPE line's units, unit value, valuation and unrealized gain. A
+  dedicated read-only Playwright sidecar handles the captcha-gated login and the
+  mandatory second factor, either an approval in the "Mon Épargne" app or an SMS
+  code; credentials and codes are never persisted, only the encrypted session.
+  Valuations come from Amundi rather than a price feed, since no FCPE is quotable
+  on Yahoo. Imports expose queued/running/success/failure progress, reject plans
+  whose total does not reconcile with their lines, and preserve the last valid
+  holdings on failure. Reachable from the Sync page and the Add-account modal, in
+  all four locales, and its accounts carry the Amundi logo rather than a color
+  circle. See [feature notes](docs/features/amundi-epargne-salariale.md)
+  and the [ADR](docs/decisions/2026-08-09-amundi-epargne-salariale-sidecar.md).
+- **Meria crypto exchange sync.** Connect a Meria account with the single
+  read-only API key from `dashboard.meria.com/account/api` — no API secret, and
+  the add-exchange form now hides that field for exchanges that don't use one
+  (`CryptoExchangePort.requiresApiSecret()`, enforced server-side in all four
+  locales). Picsou sums spot wallets, staking and lending contracts per coin,
+  counting a contract as its held amount — Meria's `reward` is cumulative
+  interest already reflected there — then
+  values the total in EUR through the existing price path; coins were added
+  to the CoinGecko ticker map so Meria balances aren't silently unvalued. A
+  failed sub-call fails the whole sync rather than writing a shrunken balance
+  into the net-worth history. The account page groups its positions by product —
+  Spot / Staking / Lending — and shows principal, accrued interest and total for
+  each yield-bearing line. See [feature notes](docs/features/crypto-tracking.md).
 - **Bourse Direct brokerage sync.** A dedicated read-only Playwright sidecar
   handles login and the six-digit security code, then imports PEA/CTO positions,
   average cost, current price, valuation and account cash. Credentials and OTPs
@@ -130,6 +157,38 @@ information architecture.
 
 ### Fixed
 
+- **Business-oriented banks never appeared in the bank search.** Picsou asked
+  Enable Banking only for retail (`personal`) institutions, so BaaS and
+  professional banks — Swan among them — were invisible in the picker even
+  though the account existed and the credentials were valid, with nothing to
+  distinguish that from a misconfiguration. The catalog is now fetched
+  unfiltered, each bank's PSU type is read from the provider and carried through
+  the connection flow so the consent page presents the right login, and
+  business-only banks are marked with a **Pro** badge in both bank pickers.
+  See [feature notes](docs/features/bank-sync.md).
+- **A price provider outage no longer blanks positions, invents a loss, or writes
+  a zero into your history.** After a restart, a rate-limited CoinGecko left the
+  largest lines of a crypto account with no price: they dropped out of the account's
+  value while their full purchase cost stayed in the cost basis, so an untouched
+  account reported **-85%** — and a sync running at that moment stamped a **0 €**
+  balance into that day's net-worth snapshot, which nothing later corrected. Three
+  changes: prices now fall back to the last one recorded (up to 7 days old, shown
+  with a marker and its date instead of a dash); an asset that cannot be valued at
+  all is excluded from the cost basis as well as the value, so the percentage stays
+  honest; and a sync that can value nothing refuses rather than recording a zero.
+  A resync repairs an already-recorded zero for the current day. See the
+  [ADR](docs/decisions/2026-08-01-last-known-price-fallback.md).
+- **Picsou stops provoking the rate limits it then suffers from.** Reads used to
+  issue one price request per holding on every page render and retry immediately on
+  failure, so a brief 429 sustained itself for hours. Prices are now resolved one
+  batch per page, a failed ticker is left alone for a minute, CoinGecko calls pause
+  while a 429 is in force, the hourly refresh finally covers tickers held *inside*
+  accounts (previously only account-level ones, i.e. never the crypto ones), and the
+  startup backfill skips history it already has instead of re-downloading a year of
+  it at every boot.
+- **The GitHub link in Settings → About now points to the right repository.** It
+  linked to `github.com/zoeille/picsou`, which does not exist; the repository is
+  `github.com/zoeille/picsou-finance`.
 - **Restoring several tabs at once no longer logs you out everywhere.** When
   multiple tabs were restored together they each presented the same "Remember
   Me" token; the first request rotated it and the rest looked like a replayed

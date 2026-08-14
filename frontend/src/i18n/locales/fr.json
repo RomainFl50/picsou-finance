@@ -186,6 +186,7 @@
     "history": "Historique",
     "priceLive": "Prix en direct",
     "priceStale": "Prix datant de {{time}}",
+    "priceAsOf": "Cours du {{date}} — le fournisseur de prix n'a pas répondu",
     "manual": "Manuel",
     "allTypes": "Tous les types",
     "accountName": "Nom du compte",
@@ -232,7 +233,8 @@
     "crypto": "Crypto",
     "realEstate": "Immobilier",
     "loan": "Prêt",
-    "other": "Autre"
+    "other": "Autre",
+    "employeeSavings": "Épargne salariale"
   },
   "realEstate": {
     "purchasePrice": "Prix d'achat",
@@ -372,6 +374,16 @@
         "SG": "Singapour"
       }
     }
+  },
+  "positions": {
+    "products": {
+      "SPOT": "Spot",
+      "STAKING": "Staking",
+      "LENDING": "Lending"
+    },
+    "principal": "Capital",
+    "interest": "Intérêts",
+    "total": "Total"
   },
   "goals": {
     "title": "Objectifs",
@@ -694,13 +706,15 @@
     "syncingDesc": "Récupération de vos dernières transactions. Cela prend généralement quelques secondes.",
     "desc": {
       "banks": "Connecter vos banques via OAuth",
-      "exchanges": "Binance, Kraken...",
+      "exchanges": "Binance, Meria...",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "revolut": "Téléphone + code, synchro à la demande",
       "bourseDirect": "Synchroniser vos PEA et CTO",
+      "degiro": "Synchroniser votre compte-titres DEGIRO",
       "finary": "Importer depuis Finary",
-      "manual": "Créer un compte manuellement"
+      "manual": "Créer un compte manuellement",
+      "amundi": "PEE, PEG, PERCO, PER chez Amundi"
     }
   },
   "sync": {
@@ -708,6 +722,8 @@
     "banks": {
       "title": "Banques",
       "search": "Rechercher une banque",
+      "country": "Pays",
+      "countriesLoadError": "Impossible de charger tous les pays — France uniquement.",
       "searchPlaceholder": "Ex: BNP Paribas...",
       "searchError": "Impossible de rechercher les banques pour le moment.",
       "connected": "Connexions actives",
@@ -720,7 +736,9 @@
       "callbackDone": "Comptes synchronisés !",
       "callbackError": "Erreur de synchronisation",
       "initiateError": "Échec de la connexion",
-      "psd2ScopeNote": "Enable Banking ne synchronise que vos comptes courants (limitation PSD2). Pour vos PEA, AV, Livret A : utilisez Trade Republic, Boursobank, Finary, ou ajoutez-les manuellement."
+      "psd2ScopeNote": "Enable Banking ne synchronise que vos comptes courants (limitation PSD2). Pour vos PEA, AV, Livret A : utilisez Trade Republic, Boursobank, Finary, ou ajoutez-les manuellement.",
+      "proBadge": "Pro",
+      "proBadgeTitle": "Compte professionnel — cette banque ne s'adresse qu'aux pros"
     },
     "tr": {
       "title": "Trade Republic",
@@ -807,8 +825,12 @@
       "type": "Type d'exchange",
       "apiKey": "Clé API",
       "apiSecret": "Secret API",
+      "apiKeyOnly": "Meria se connecte avec une seule clé API en lecture seule — aucun secret requis.",
+      "showSecret": "Afficher le secret API",
+      "hideSecret": "Masquer le secret API",
       "connect": "Connecter",
       "connectError": "Échec de la connexion. Vérifiez votre clé API et votre secret.",
+      "connectErrorKeyOnly": "Échec de la connexion. Vérifiez votre clé API.",
       "sync": "Synchroniser",
       "remove": "Supprimer",
       "removeConfirm": "Supprimer cet exchange ?",
@@ -912,6 +934,27 @@
         "serverError": "Erreur serveur BoursoBank. Veuillez réessayer."
       }
     },
+    "degiro": {
+      "title": "DEGIRO",
+      "username": "Identifiant",
+      "password": "Mot de passe",
+      "totpCode": "Code d'authentification",
+      "connect": "Connecter",
+      "sync": "Synchroniser",
+      "clearSession": "Déconnecter",
+      "noSession": "Aucune session active",
+      "sessionActive": "Session active",
+      "reauthRequired": "Reconnexion nécessaire",
+      "lastSyncedAt": "Dernière synchro le",
+      "totpPrompt": "Saisissez le code à 6 chiffres de votre application d'authentification",
+      "errors": {
+        "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
+        "invalidCredentials": "Identifiants invalides.",
+        "invalidTotpCode": "Code d'authentification invalide ou expiré.",
+        "sessionExpired": "Session expirée. Veuillez vous reconnecter.",
+        "serverError": "Erreur serveur DEGIRO. Veuillez réessayer."
+      }
+    },
     "bourseDirect": {
       "title": "Bourse Direct",
       "login": "Identifiant",
@@ -940,6 +983,40 @@
         "formatChanged": "Le format du portefeuille Bourse Direct a changé. Vos données existantes ont été conservées.",
         "invalidData": "Bourse Direct a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
         "serverError": "Impossible de joindre Bourse Direct. Veuillez réessayer."
+      }
+    },
+    "amundi": {
+      "title": "Amundi",
+      "login": "Identifiant",
+      "password": "Mot de passe",
+      "otpCode": "Code de sécurité à 6 chiffres",
+      "otpPrompt": "Saisissez le code envoyé par Amundi par SMS.",
+      "appValidationPrompt": "Ouvrez l'application Mon Épargne et validez la connexion.",
+      "appValidationHint": "Cette page se met à jour automatiquement dès que vous avez validé.",
+      "connect": "Se connecter",
+      "connecting": "Connexion en cours…",
+      "validate": "Valider le code",
+      "validating": "Validation en cours…",
+      "sync": "Synchroniser",
+      "queued": "Synchronisation en attente…",
+      "syncing": "Synchronisation en cours…",
+      "syncSuccess": "Plans d'épargne synchronisés.",
+      "clearSession": "Déconnecter",
+      "noSession": "Aucune session active",
+      "sessionActive": "Session active",
+      "scope": "Synchronise vos plans d'épargne salariale (PEE, PEG, PERCO, PER) et les lignes de FCPE qu'ils contiennent, avec leur valorisation.",
+      "errors": {
+        "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
+        "invalidCredentials": "Identifiants Amundi invalides.",
+        "captchaBlocked": "Amundi demande un captcha que Picsou ne peut pas résoudre. Réessayez plus tard.",
+        "invalidCode": "Code de sécurité invalide ou expiré. Recommencez la connexion.",
+        "appValidationTimeout": "La validation dans l'application n'a pas été confirmée à temps. Recommencez la connexion.",
+        "authAttemptExpired": "La tentative d’authentification a expiré. Recommencez la connexion.",
+        "sessionExpired": "La session Amundi a expiré. Veuillez vous reconnecter.",
+        "portfolioIncomplete": "Amundi a renvoyé des plans incomplets. Vos données existantes ont été conservées.",
+        "formatChanged": "Le format du site Amundi a changé. Vos données existantes ont été conservées.",
+        "invalidData": "Amundi a renvoyé des données incohérentes. Vos données existantes ont été conservées.",
+        "serverError": "Impossible de joindre Amundi. Veuillez réessayer."
       }
     }
   },
@@ -1596,7 +1673,7 @@
     },
     "crypto": {
       "title": "Chiffrez vos clés API d'exchange",
-      "body": "Vos clés API Binance / Kraken / Coinbase sont chiffrées au repos. Picsou peut générer la clé de chiffrement pour vous — elle reste sur votre disque et n'est jamais transmise.",
+      "body": "Vos clés API d'exchange (Binance, Meria...) sont chiffrées au repos. Picsou peut générer la clé de chiffrement pour vous — elle reste sur votre disque et n'est jamais transmise.",
       "generateCta": "Générer une clé pour moi",
       "generating": "Génération...",
       "existed": "Votre clé de chiffrement est déjà configurée — rien à faire.",

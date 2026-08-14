@@ -11,6 +11,8 @@ import { IbkrTab } from './IbkrTab'
 import { FinaryTab } from './FinaryTab'
 import { BourseDirectTab } from './BourseDirectTab'
 import { AccountsVisibilityTab } from './AccountsVisibilityTab'
+import { DegiroTab } from './DegiroTab'
+import { AmundiTab } from './AmundiTab'
 // BoursoTab hidden for 1.0.0 — sidecar integration not finished.
 
 export function SyncPage() {
@@ -29,7 +31,9 @@ export function SyncPage() {
           <TabsTrigger value="tr">{t('sync.tr.title')}</TabsTrigger>
           <TabsTrigger value="revolut">{t('sync.revolut.title')}</TabsTrigger>
           <TabsTrigger value="bourse-direct">{t('sync.bourseDirect.title')}</TabsTrigger>
+          <TabsTrigger value="degiro">{t('sync.degiro.title')}</TabsTrigger>
           <TabsTrigger value="ibkr">{t('sync.ibkr.title')}</TabsTrigger>
+          <TabsTrigger value="amundi">{t('sync.amundi.title')}</TabsTrigger>
           <TabsTrigger value="finary">{t('sync.finary.title')}</TabsTrigger>
           <TabsTrigger value="visibility">{t('sync.visibility.title')}</TabsTrigger>
         </TabsList>
@@ -51,8 +55,14 @@ export function SyncPage() {
         <TabsContent value="bourse-direct" className="mt-6">
           <BourseDirectTab />
         </TabsContent>
+        <TabsContent value="degiro" className="mt-6">
+          <DegiroTab />
+        </TabsContent>
         <TabsContent value="ibkr" className="mt-6">
           <IbkrTab />
+        </TabsContent>
+        <TabsContent value="amundi" className="mt-6">
+          <AmundiTab />
         </TabsContent>
         <TabsContent value="finary" className="mt-6">
           <FinaryTab />

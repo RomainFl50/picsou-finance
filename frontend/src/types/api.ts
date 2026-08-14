@@ -1,6 +1,6 @@
 export type AccountType =
   | 'LEP' | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
-  | 'REAL_ESTATE' | 'LOAN' | 'OTHER'
+  | 'REAL_ESTATE' | 'LOAN' | 'EMPLOYEE_SAVINGS' | 'OTHER'
 
 export interface RealEstateMetadata {
   purchasePrice: number
@@ -229,11 +229,14 @@ export interface DashboardData {
 }
 
 export interface Institution {
+  /** Opaque round-trip token ("Swan::FR::business") — pass back to /sync/initiate verbatim. */
   id: string
   name: string
   bic: string | null
   logoUrl: string | null
   country: string
+  /** 'personal' | 'business' — kept as a string so an unknown provider value degrades to no badge. */
+  psuType: string
 }
 
 export interface HoldingResponse {
@@ -248,6 +251,11 @@ export interface HoldingResponse {
   pnlEur: number | null
   pnlPercent: number | null
   priceUpdatedAt: string | null
+  // The day the EUR price is for, and whether it is a recorded price rather than a live quote.
+  // Set by the backend when the price provider could not be reached; the value is still shown,
+  // marked, instead of leaving the line blank.
+  priceAsOf: string | null
+  priceStale: boolean
 }
 
 // --- Security insight (asset type + ETF composition) ---
@@ -272,7 +280,31 @@ export interface SecurityInsight {
   composition: EtfComposition | null
 }
 
-export type ExchangeType = 'BINANCE' | 'KRAKEN'
+/**
+ * Crypto exchanges, in the order the pickers show them.
+ *
+ * Mirrors the backend `com.picsou.model.ExchangeType` enum *and* its `CryptoExchangePort` beans —
+ * there is no codegen between them, so adding an exchange means editing both sides in the same
+ * change. `requiresApiSecret` mirrors `CryptoExchangePort.requiresApiSecret()`: Meria authenticates
+ * with a single read-only API key, and `CryptoExchangeSyncService` returns 400 both for a missing
+ * secret where one is needed and for a stray secret where none is — so getting this wrong is a
+ * loud error, not a silent bug.
+ *
+ * KRAKEN is listed but has no backend adapter yet: picking it returns 422 "This exchange isn't
+ * supported yet."
+ */
+export const SUPPORTED_EXCHANGES = [
+  { type: 'BINANCE', requiresApiSecret: true },
+  { type: 'KRAKEN', requiresApiSecret: true },
+  { type: 'MERIA', requiresApiSecret: false },
+] as const
+
+export type ExchangeType = (typeof SUPPORTED_EXCHANGES)[number]['type']
+
+/** Whether the exchange needs an API secret on top of its API key. */
+export function exchangeRequiresApiSecret(type: ExchangeType): boolean {
+  return SUPPORTED_EXCHANGES.find(exchange => exchange.type === type)?.requiresApiSecret ?? true
+}
 /**
  * On-chain wallet chains, in the order the pickers show them.
  *
@@ -285,6 +317,28 @@ export const SUPPORTED_CHAINS = ['BITCOIN', 'EVM', 'SOLANA'] as const
 
 export type ChainType = (typeof SUPPORTED_CHAINS)[number]
 export type FinaryMappingAction = 'SKIP' | 'MAP_EXISTING' | 'CREATE_NEW'
+
+/** One line of a crypto exchange account's per-product breakdown. */
+export interface ExchangePositionResponse {
+  product: 'SPOT' | 'STAKING' | 'LENDING'
+  ticker: string
+  quantity: number
+  /** Capital part of `quantity`; null when the exchange doesn't split it. */
+  principal: number | null
+  /** Yield *already included* in `quantity` — a decomposition, never an addition. */
+  interest: number | null
+  /** Unit cost basis, shared by every line of the same asset (cost is tracked per asset). */
+  averageBuyIn: number | null
+  currentPriceEur: number | null
+  currentValueEur: number | null
+  costBasisEur: number | null
+  pnlEur: number | null
+  pnlPercent: number | null
+  /** The day `currentPriceEur` is for; null when no price could be resolved. */
+  priceAsOf: string | null
+  /** True when the price is the last one recorded rather than a live quote — shown, but marked. */
+  priceStale: boolean
+}
 
 export interface ExchangeStatus {
   id: number
@@ -332,6 +386,25 @@ export interface BoursoAuthInitResponse {
   contact: string | null
 }
 
+export type DegiroSessionStatusValue = 'ACTIVE' | 'REAUTH_REQUIRED' | 'FAILED'
+
+export interface DegiroSessionStatus {
+  isActive: boolean
+  /** `null` when no session has ever been stored for this member. */
+  status: DegiroSessionStatusValue | null
+  lastSyncedAt: string | null
+}
+
+/**
+ * A discriminated union rather than `{ processId: string | null; totpRequired: boolean }`:
+ * the /complete endpoint cannot work without a processId, so the TOTP branch must not
+ * type-check with a null one. The no-TOTP branch keeps it nullable — the backend has
+ * nothing useful to send there and the client never reads it.
+ */
+export type DegiroAuthInitResponse =
+  | { totpRequired: true; processId: string }
+  | { totpRequired: false; processId: string | null }
+
 interface BourseDirectSessionStatusBase {
   isActive: boolean
   expiresAt: string | null
@@ -364,6 +437,42 @@ export interface BourseDirectAuthInitResponse {
   processId: string | null
   mfaRequired: boolean
   mfaType: string | null
+}
+
+interface AmundiSessionStatusBase {
+  isActive: boolean
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+}
+
+export type AmundiSessionStatus =
+  | (AmundiSessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: AmundiErrorCode
+    })
+  | (AmundiSessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+export type AmundiErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'CAPTCHA_BLOCKED'
+  | 'INVALID_OTP'
+  | 'APP_VALIDATION_TIMEOUT'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+/** `mfaType` is `APP_PUSH` when the user must approve in the Mon Épargne app, `SMS` otherwise. */
+export interface AmundiAuthInitResponse {
+  processId: string | null
+  mfaRequired: boolean
+  mfaType: 'APP_PUSH' | 'SMS' | null
 }
 
 export interface FinaryAccountPreview {

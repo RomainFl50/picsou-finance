@@ -9,6 +9,8 @@ import {
   boursoApi,
   revolutApi,
   bourseDirectApi,
+  degiroApi,
+  amundiApi,
 } from './api'
 import type {
   ExchangeType,
@@ -24,11 +26,14 @@ import type {
 export const syncKeys = {
   all: ['sync'] as const,
   banks: () => [...syncKeys.all, 'banks'] as const,
-  institutions: (q: string) => [...syncKeys.all, 'institutions', q] as const,
+  institutions: (q: string, country: string) => [...syncKeys.all, 'institutions', q, country] as const,
+  countries: () => [...syncKeys.all, 'countries'] as const,
   tr: () => [...syncKeys.all, 'tr'] as const,
   bourso: () => [...syncKeys.all, 'bourso'] as const,
   revolut: () => [...syncKeys.all, 'revolut'] as const,
   bourseDirect: () => [...syncKeys.all, 'bourse-direct'] as const,
+  degiro: () => [...syncKeys.all, 'degiro'] as const,
+  amundi: () => [...syncKeys.all, 'amundi'] as const,
   exchanges: () => [...syncKeys.all, 'exchanges'] as const,
   wallets: () => [...syncKeys.all, 'wallets'] as const,
   finary: () => [...syncKeys.all, 'finary'] as const,
@@ -47,11 +52,20 @@ export function useBankSyncStatus() {
   })
 }
 
-export function useSearchInstitutions(query: string) {
+export function useSearchInstitutions(query: string, country: string) {
   return useQuery({
-    queryKey: syncKeys.institutions(query),
-    queryFn: () => bankSyncApi.searchInstitutions(query),
+    queryKey: syncKeys.institutions(query, country),
+    queryFn: () => bankSyncApi.searchInstitutions(query, country),
     enabled: query.length >= 2,
+  })
+}
+
+/** Countries the active bank-sync provider covers, for the country picker. staleTime mirrors the backend's own 6h cache TTL. */
+export function useBankCountries() {
+  return useQuery({
+    queryKey: syncKeys.countries(),
+    queryFn: bankSyncApi.listCountries,
+    staleTime: 6 * 60 * 60 * 1000,
   })
 }
 
@@ -245,11 +259,6 @@ export function useRevolutStatus() {
   })
 }
 
-/**
- * Poll the live progress of a background sync job (Revolut now, Trade Republic once
- * Increment 2 wires up its `/sync/progress` endpoint). Auto-refetches every 1.5s while
- * running, mirroring `useCategorizeAiStatus`.
- */
 export function useSyncProgress(provider: 'revolut' | 'tr', enabled: boolean) {
   return useQuery({
     queryKey: ['sync', provider, 'progress'],
@@ -259,7 +268,6 @@ export function useSyncProgress(provider: 'revolut' | 'tr', enabled: boolean) {
   })
 }
 
-/** Start the async Revolut discovery job and seed the progress cache with the initial status. */
 export function useStartRevolutSync() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -270,12 +278,6 @@ export function useStartRevolutSync() {
   })
 }
 
-/**
- * Persist the selected discovered accounts (and optionally remember credentials).
- * `voluntary` distinguishes an explicit Add-account re-selection (may resurrect a
- * soft-deleted account) from an auto-sync confirm (tombstones stay respected) — see
- * `RevolutSyncService.confirmSync` on the backend.
- */
 export function useConfirmRevolutSync() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -304,6 +306,63 @@ export function useForgetRevolut() {
       queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
       queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// DEGIRO
+// ---------------------------------------------------------------------------
+
+export function useDegiroSessionStatus() {
+  return useQuery({
+    queryKey: syncKeys.degiro(),
+    queryFn: degiroApi.getStatus,
+    staleTime: 30_000,
+  })
+}
+
+export function useInitiateDegiroAuth() {
+  return useMutation({
+    mutationFn: ({ username, password }: { username: string; password: string }) =>
+      degiroApi.initiateAuth(username, password),
+  })
+}
+
+export function useCompleteDegiroAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ processId, code }: { processId: string; code: string }) =>
+      degiroApi.completeAuth(processId, code),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.degiro() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+export function useSyncDegiro() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => degiroApi.sync(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.degiro() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.degiro() })
+    },
+  })
+}
+
+export function useClearDegiroSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => degiroApi.clearSession(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.degiro() })
     },
   })
 }
@@ -383,6 +442,79 @@ export function useClearBourseDirectSession() {
 
 
 // ---------------------------------------------------------------------------
+// Amundi Épargne Salariale
+// ---------------------------------------------------------------------------
+
+export function useAmundiStatus() {
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: syncKeys.amundi(),
+    queryFn: amundiApi.getStatus,
+    staleTime: 0,
+    refetchInterval: currentQuery => {
+      const state = currentQuery.state.data?.syncStatus
+      return state === 'QUEUED' || state === 'RUNNING' ? 1_500 : 30_000
+    },
+  })
+  const completedAt = query.data?.lastSyncCompletedAt
+  const succeeded = query.data?.syncStatus === 'SUCCESS'
+
+  useEffect(() => {
+    if (!succeeded || !completedAt) return
+    queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+  }, [completedAt, queryClient, succeeded])
+
+  return query
+}
+
+export function useInitiateAmundiAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ login, password }: { login: string; password: string }) =>
+      amundiApi.initiateAuth(login, password),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.amundi() })
+    },
+  })
+}
+
+export function useCompleteAmundiAuth() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ processId, code }: { processId: string; code?: string }) =>
+      amundiApi.completeAuth(processId, code),
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.amundi(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.amundi() })
+    },
+  })
+}
+
+export function useSyncAmundi() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: amundiApi.sync,
+    onSuccess: status => {
+      queryClient.setQueryData(syncKeys.amundi(), status)
+      queryClient.invalidateQueries({ queryKey: syncKeys.amundi() })
+    },
+  })
+}
+
+export function useClearAmundiSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: amundiApi.clearSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: syncKeys.amundi() })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Crypto Exchanges
 // ---------------------------------------------------------------------------
 
@@ -398,7 +530,7 @@ export function useCryptoExchangeStatuses() {
 export function useAddCryptoExchange() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ type, apiKey, apiSecret }: { type: ExchangeType; apiKey: string; apiSecret: string }) =>
+    mutationFn: ({ type, apiKey, apiSecret }: { type: ExchangeType; apiKey: string; apiSecret?: string }) =>
       cryptoExchangeApi.add(type, apiKey, apiSecret),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: syncKeys.exchanges() })

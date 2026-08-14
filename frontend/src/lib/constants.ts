@@ -8,6 +8,7 @@ export const ACCOUNT_TYPES: { value: AccountType; labelKey: string }[] = [
   { value: 'COMPTE_TITRES', labelKey: 'accountTypes.compteTitres' },
   { value: 'CRYPTO', labelKey: 'accountTypes.crypto' },
   { value: 'REAL_ESTATE', labelKey: 'accountTypes.realEstate' },
+  { value: 'EMPLOYEE_SAVINGS', labelKey: 'accountTypes.employeeSavings' },
   { value: 'LOAN', labelKey: 'accountTypes.loan' },
   { value: 'OTHER', labelKey: 'accountTypes.other' },
 ]
@@ -50,6 +51,18 @@ export const QUERY_STALE_TIMES = {
  * TradeRepublicTab) so client-side validation stays consistent.
  */
 export const TR_VERIFICATION_CODE_LENGTH = 4
+
+/**
+ * Mirrors the `@Size` bounds on `CryptoExchangeController.AddExchangeRequest`, shared by both
+ * exchange forms (AddAccountModal, CryptoExchangeTab).
+ *
+ * A credential over the limit is rejected as a 422 whose ProblemDetail carries an `errors` map
+ * but no `detail` — and the forms only render `detail`, so the user gets an error with no text.
+ * Capping the inputs means that response is unreachable from the UI. The backend bounds are sized
+ * against the `varchar(500)` columns holding the AES-GCM ciphertext; raise these only together.
+ */
+export const EXCHANGE_API_KEY_MAX_LENGTH = 200
+export const EXCHANGE_API_SECRET_MAX_LENGTH = 300
 
 /**
  * How long a successful `session-probe` result (RequireAuth's cookie-backed

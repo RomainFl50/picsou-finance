@@ -4,6 +4,7 @@ import type {
   ExchangeType,
   ChainType,
   ExchangeStatus,
+  Institution,
   WalletStatus,
   FinaryPreviewResponse,
   FinaryConnectionStatus,
@@ -17,18 +18,21 @@ import type {
   SyncProgress,
   BourseDirectSessionStatus,
   BourseDirectAuthInitResponse,
+  DegiroSessionStatus,
+  DegiroAuthInitResponse,
+  AmundiSessionStatus,
+  AmundiAuthInitResponse,
 } from '@/types/api'
 
 // --- Bank Sync (Enable Banking) ---
 
 export const bankSyncApi = {
-  searchInstitutions: (query: string) =>
+  searchInstitutions: (query: string, country: string) =>
     api
-      .get<{ id: string; name: string; bic: string | null; logoUrl?: string | null; country: string }[]>(
-        '/sync/institutions',
-        { params: { query }, skipGlobalErrorRedirect: true },
-      )
+      .get<Institution[]>('/sync/institutions', { params: { query, country }, skipGlobalErrorRedirect: true })
       .then(r => r.data),
+
+  listCountries: () => api.get<string[]>('/sync/countries', { skipGlobalErrorRedirect: true }).then(r => r.data),
 
   initiate: (institutionId: string, institutionName: string) =>
     api
@@ -102,7 +106,9 @@ export const trApi = {
 // --- Crypto Exchanges ---
 
 export const cryptoExchangeApi = {
-  add: (type: ExchangeType, apiKey: string, apiSecret: string) =>
+  // apiSecret is optional: single-key exchanges (Meria) must not send one, and axios drops an
+  // undefined field from the JSON body entirely.
+  add: (type: ExchangeType, apiKey: string, apiSecret?: string) =>
     api
       .post<Account>('/crypto/exchange', { type, apiKey, apiSecret })
       .then(r => r.data),
@@ -163,12 +169,6 @@ export const boursoApi = {
 }
 
 // --- Revolut ---
-// On-demand phone+passcode sync: discovery (login + harvest, up to ~5 minutes waiting
-// on the mobile approval) now runs as a 202 background job reported via getSyncProgress
-// (no more long per-request timeout — that's what used to 504 behind nginx's 60s proxy
-// timeout). phoneNumber/passcode may be omitted once credentials were previously
-// remembered. `remember` is no longer sent at discovery time: it only takes effect once
-// the user confirms which discovered accounts to import.
 
 export const revolutApi = {
   getSessionStatus: () =>
@@ -185,6 +185,29 @@ export const revolutApi = {
 
   clearSession: () =>
     api.delete('/revolut/session'),
+}
+
+// --- DEGIRO ---
+
+export const degiroApi = {
+  initiateAuth: (username: string, password: string) =>
+    api
+      .post<DegiroAuthInitResponse>('/degiro/auth/initiate', { username, password })
+      .then(r => r.data),
+
+  completeAuth: (processId: string, code: string) =>
+    api
+      .post<DegiroSessionStatus>('/degiro/auth/complete', { processId, code })
+      .then(r => r.data),
+
+  sync: () =>
+    api.post<Account>('/degiro/sync').then(r => r.data),
+
+  getStatus: () =>
+    api.get<DegiroSessionStatus>('/degiro/status').then(r => r.data),
+
+  clearSession: () =>
+    api.delete('/degiro/session'),
 }
 
 // --- Bourse Direct ---
@@ -211,6 +234,32 @@ export const bourseDirectApi = {
       .then(r => r.data),
 
   clearSession: () => api.delete('/bourse-direct/session'),
+}
+
+// --- Amundi Épargne Salariale ---
+
+export const amundiApi = {
+  initiateAuth: (login: string, password: string) =>
+    api
+      .post<AmundiAuthInitResponse>('/amundi/auth/initiate', { login, password })
+      .then(r => r.data),
+
+  // `code` is omitted for an app push: the user approves on their phone.
+  completeAuth: (processId: string, code?: string) =>
+    api
+      .post<AmundiSessionStatus>('/amundi/auth/complete', { processId, code })
+      .then(r => r.data),
+
+  sync: () => api.post<AmundiSessionStatus>('/amundi/sync').then(r => r.data),
+
+  getStatus: () =>
+    api
+      .get<AmundiSessionStatus>('/amundi/status', {
+        skipGlobalErrorRedirect: true,
+      })
+      .then(r => r.data),
+
+  clearSession: () => api.delete('/amundi/session'),
 }
 
 // --- Finary ---

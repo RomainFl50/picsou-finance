@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
@@ -69,6 +70,12 @@ public class PowensBankConnector implements BankConnectorPort {
             .baseUrl("https://" + domain + ".biapi.pro/2.0")
             .defaultHeader("Accept", "application/json")
             .defaultHeader("Content-Type", "application/json")
+            // WebClient's default in-memory buffer limit is 256 KB — listCountries() fetches
+            // the full unfiltered /connectors catalog (potentially thousands of entries), which
+            // can exceed it. See EnableBankingBankConnector for the same fix and rationale.
+            .exchangeStrategies(ExchangeStrategies.builder()
+                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(8 * 1024 * 1024))
+                .build())
             .build();
     }
 
@@ -229,9 +236,38 @@ public class PowensBankConnector implements BankConnectorPort {
                 c.name(),
                 null,
                 null,
-                c.country() != null ? c.country().toUpperCase() : null
+                c.country() != null ? c.country().toUpperCase() : null,
+                // Screen scraping has no PSU-type concept: the user's own credentials
+                // decide which space they land in.
+                "personal"
             ))
             .limit(20)
+            .toList();
+    }
+
+    /** Distinct countries covered by Powens' connector catalog. */
+    @Override
+    public List<String> listCountries() {
+        ConnectorsResponse response = webClient.get()
+            .uri("/connectors")
+            .header("Authorization", basicAuth())
+            .retrieve()
+            .bodyToMono(ConnectorsResponse.class)
+            .timeout(TIMEOUT)
+            .onErrorMap(WebClientResponseException.class,
+                ex -> new SyncException("Failed to fetch Powens connector countries: " + ex.getResponseBodyAsString(), ex))
+            .onErrorMap(ex -> !(ex instanceof SyncException),
+                ex -> new SyncException("Failed to fetch Powens connector countries: " + ex.getMessage(), ex))
+            .block();
+
+        List<PowensConnector> connectors = (response != null && response.connectors() != null)
+            ? response.connectors() : List.of();
+        return connectors.stream()
+            .map(PowensConnector::country)
+            .filter(c -> c != null && !c.isBlank())
+            .map(String::toUpperCase)
+            .distinct()
+            .sorted()
             .toList();
     }
 

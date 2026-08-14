@@ -51,17 +51,40 @@ export function formatCurrency(value: number, currency = 'EUR', locale = getLoca
   }
 }
 
+/** ISO 3166-1 alpha-2 code → localized country name (e.g. "EE" → "Estonia"). Falls back to the raw code for an unknown/invalid one. */
+export function formatCountryName(code: string, locale = getLocale()): string {
+  try {
+    const name = new Intl.DisplayNames([normalizeIntlLocale(locale)], { type: 'region' }).of(code)
+    return name && name !== code ? name : code
+  } catch {
+    return code
+  }
+}
+
+/**
+ * Parses an API date, anchoring a date-only value at *local* midnight.
+ *
+ * `new Date('2026-07-31')` is specified to parse as UTC midnight, so anywhere west of UTC the
+ * rendered day is the one before. A date-only string carries no zone because it denotes a calendar
+ * day rather than an instant — which is exactly why the backend sends `LocalDate` for `priceAsOf`,
+ * transaction dates and goal deadlines. Values that do carry a time are left to `Date` untouched:
+ * there the offset is real information.
+ */
+function toDate(dateStr: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00`) : new Date(dateStr)
+}
+
 export function formatDate(dateStr: string | null | undefined, locale = getLocale(), format?: DateFormat): string {
   if (!dateStr) return '—'
   const resolvedFormat = format ?? useAppStore.getState().dateFormat
   if (resolvedFormat === 'iso') {
-    const d = new Date(dateStr)
+    const d = toDate(dateStr)
     const day = String(d.getDate()).padStart(2, '0')
     const month = String(d.getMonth() + 1).padStart(2, '0')
     const year = d.getFullYear()
     return `${day}-${month}-${year}`
   }
-  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(dateStr))
+  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).format(toDate(dateStr))
 }
 
 /**
@@ -101,7 +124,7 @@ export function parseDate(
 
 export function formatDateTime(dateStr: string | null | undefined, locale = getLocale(), format?: DateFormat): string {
   if (!dateStr) return '—'
-  const d = new Date(dateStr)
+  const d = toDate(dateStr)
   const resolvedFormat = format ?? useAppStore.getState().dateFormat
   if (resolvedFormat === 'iso') {
     const day = String(d.getDate()).padStart(2, '0')
@@ -131,7 +154,7 @@ export function todayLabel(locale = getLocale(), date = new Date()): string {
 
 export function formatLocalDate(dateStr: string | null | undefined, locale = getLocale()): string {
   if (!dateStr) return '—'
-  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(dateStr))
+  return new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'long', year: 'numeric' }).format(toDate(dateStr))
 }
 
 export function formatTimeAgo(dateStr: string | null | undefined, locale = getLocale()): string {

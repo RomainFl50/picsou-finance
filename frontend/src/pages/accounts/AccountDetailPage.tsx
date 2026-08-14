@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  useAccount, useAccountHistory, useHoldingsWithLivePrices,
+  useAccount, useAccountHistory, useHoldingsWithLivePrices, useAccountPositions,
   useAccountTransactions, useAddTransaction, useDeleteTransaction,
   useUpdateTransaction, useUpdateHolding, useDeleteHolding, useImportTRTransactions
 } from '@/features/accounts/hooks'
@@ -13,6 +13,7 @@ import { useHistory } from '@/features/history/hooks'
 import { BalanceHistoryChart } from '@/components/shared/BalanceHistoryChart'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
 import { HoldingsTable } from '@/components/shared/HoldingsTable'
+import { PositionsByProduct } from '@/components/shared/PositionsByProduct'
 import { RealizedPnlSection } from '@/components/shared/RealizedPnlSection'
 import { TransactionsList } from '@/components/shared/TransactionsList'
 import { AddTransactionModal } from '@/components/shared/AddTransactionModal'
@@ -35,7 +36,7 @@ import { accountTypeLabelKey } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { HoldingResponse, Transaction } from '@/types/api'
 
-const HOLDING_ACCOUNT_TYPES = ['PEA', 'COMPTE_TITRES', 'CRYPTO']
+const HOLDING_ACCOUNT_TYPES = ['PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS']
 
 export function AccountDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -46,6 +47,7 @@ export function AccountDetailPage() {
   const { data: account, isLoading } = useAccount(accountId)
   const { data: history } = useAccountHistory(accountId)
   const { data: holdings } = useHoldingsWithLivePrices(accountId)
+  const { data: positions } = useAccountPositions(accountId)
   const { data: transactions } = useAccountTransactions(accountId)
   const addTxMutation = useAddTransaction(accountId)
   const deleteTxMutation = useDeleteTransaction(accountId)
@@ -331,6 +333,52 @@ export function AccountDetailPage() {
       {/* Loan detail */}
       {isLoan && account && <LoanDetailSection accountId={account.id} />}
 
+      {/* History chart */}
+      {!isLoan && showHoldings && pnlData && pnlData.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t('dashboard.gainLoss')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <NetWorthChart data={pnlData} range={range} onRangeChange={setRange} />
+          </CardContent>
+        </Card>
+      ) : !isLoan && chartData.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t('accounts.history')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BalanceHistoryChart data={chartData} />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Holdings — grouped by product when the connector reports one (crypto exchanges),
+          otherwise the flat table. */}
+      {showHoldings && (
+        holdings ? (
+          positions && positions.length > 0 ? (
+            <PositionsByProduct positions={positions} />
+          ) : (
+            <HoldingsTable
+              holdings={holdings}
+              onEdit={setEditingHolding}
+              onDelete={(h) => deleteHoldingMutation.mutate(h.ticker)}
+            />
+          )
+        ) : (
+          <Card>
+            <CardContent className="pt-6">
+              <Skeleton className="h-32 w-full" />
+            </CardContent>
+          </Card>
+        )
+      )}
+
+      {/* Realized P&L on closed positions (investment accounts only) */}
+      {showHoldings && <RealizedPnlSection accountId={accountId} enabled={showHoldings} />}
+
       {/* Savings accounts: split into Overview / Config tabs so the page stays clean.
           Other account types keep the flat layout. */}
       {isSavings && account ? (
@@ -351,6 +399,30 @@ export function AccountDetailPage() {
             />
           </TabsContent>
         </Tabs>
+
+      {/* Transactions */}
+      ) : !isLoan && (transactions ? (
+        <>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold">{t('accounts.transactions')}</h3>
+            <div className="flex items-center gap-2">
+              {showHoldings && (
+                <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
+                  <Upload className="mr-1.5 size-4" />
+                  {t('import.importCsv')}
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={() => setShowAddTx(true)}>
+                + {t('common.add')}
+              </Button>
+            </div>
+          </div>
+          <TransactionsList
+            transactions={transactions}
+            onDelete={(txId) => deleteTxMutation.mutate(txId)}
+            onEdit={(tx) => setEditingTx(tx)}
+          />
+        </>
       ) : (
         overviewSections
       )}

@@ -149,6 +149,21 @@ handlers.set(key('GET', '/accounts/2/holdings'), () => mockHoldings[2] ?? [])
 handlers.set(key('GET', '/accounts/3/holdings'), () => mockHoldings[3] ?? [])
 handlers.set(key('GET', '/accounts/6/holdings'), () => mockHoldings[6] ?? [])
 
+// Per-product breakdown. Only the crypto account (id=6) has one, exactly like a real crypto
+// exchange account; every other account falls back to the flat holdings table.
+handlers.set(key('GET', '/accounts/6/positions'), () => {
+  const today = new Date().toISOString().slice(0, 10)
+  return [
+    { product: 'SPOT', ticker: 'BTC', quantity: 0.01204, principal: null, interest: null, averageBuyIn: 68000, currentPriceEur: 92100, currentValueEur: 1108.88, costBasisEur: 818.72, pnlEur: 290.16, pnlPercent: 35.4, priceAsOf: today, priceStale: false },
+    { product: 'SPOT', ticker: 'ETH', quantity: 0.031906, principal: null, interest: null, averageBuyIn: 3200, currentPriceEur: 4116, currentValueEur: 131.32, costBasisEur: 102.1, pnlEur: 29.22, pnlPercent: 28.6, priceAsOf: today, priceStale: false },
+    { product: 'STAKING', ticker: 'ATOM', quantity: 33.154, principal: 19.73, interest: 13.424, averageBuyIn: 6.4, currentPriceEur: 5.65, currentValueEur: 187.32, costBasisEur: 212.19, pnlEur: -24.87, pnlPercent: -11.7, priceAsOf: today, priceStale: false },
+    { product: 'LENDING', ticker: 'USDT', quantity: 75.01, principal: 75, interest: 0.01, averageBuyIn: 0.91, currentPriceEur: 0.92, currentValueEur: 69.01, costBasisEur: 68.26, pnlEur: 0.75, pnlPercent: 1.1, priceAsOf: today, priceStale: false },
+  ]
+})
+for (const i of [1, 2, 3, 4, 5, 7]) {
+  handlers.set(key('GET', `/accounts/${i}/positions`), () => [])
+}
+
 // Account details: transactions for all accounts (1–10)
 for (let i = 1; i <= 10; i++) {
   handlers.set(key('GET', `/accounts/${i}/transactions`), () => mockTransactions[i] ?? [])
@@ -497,11 +512,23 @@ handlers.set(key('DELETE', '/goals/2'), () => null)
 handlers.set(key('DELETE', '/goals/3'), () => null)
 
 // Sync
+const DEMO_INSTITUTIONS = [
+  { id: 'BNP Paribas::FR::personal', name: 'BNP Paribas', bic: 'BNPAFRPP', logoUrl: null, country: 'FR', psuType: 'personal' },
+  { id: 'BoursoBank::FR::personal', name: 'BoursoBank', bic: 'BNPAFRPP', logoUrl: null, country: 'FR', psuType: 'personal' },
+  { id: 'Swan::FR::business', name: 'Swan', bic: 'SWNBFR22', logoUrl: null, country: 'FR', psuType: 'business' },
+  { id: 'Deutsche Bank::DE::personal', name: 'Deutsche Bank', bic: 'DEUTDEFF', logoUrl: null, country: 'DE', psuType: 'personal' },
+  { id: 'LHV Pank::EE::personal', name: 'LHV Pank', bic: 'LHVBEE22', logoUrl: null, country: 'EE', psuType: 'personal' },
+]
 handlers.set(key('GET', '/sync/status'), () => mockRequisitions)
-handlers.set(key('GET', '/sync/institutions'), () => [
-  { id: 'BNP_PARIBAS', name: 'BNP Paribas', bic: 'BNPAFRPP', logoUrl: null, country: 'FR' },
-  { id: 'BOURSOBANK', name: 'BoursoBank', bic: 'BNPAFRPP', logoUrl: null, country: 'FR' },
-])
+handlers.set(key('GET', '/sync/institutions'), (config) => {
+  const params = (config.params ?? {}) as { query?: string; country?: string }
+  const country = params.country || 'FR'
+  const query = (params.query ?? '').toLowerCase()
+  return DEMO_INSTITUTIONS.filter((inst) =>
+    inst.country === country && (query === '' || inst.name.toLowerCase().includes(query)),
+  )
+})
+handlers.set(key('GET', '/sync/countries'), () => ['FR', 'DE', 'EE'])
 
 // Crypto exchange
 handlers.set(key('GET', '/crypto/exchange/status'), () => mockExchangeStatuses)
@@ -536,6 +563,25 @@ handlers.set(key('POST', '/ibkr/connect'), () => null)
 handlers.set(key('POST', '/ibkr/sync'), () => [])
 handlers.set(key('DELETE', '/ibkr/connection'), () => null)
 
+// Amundi Épargne Salariale — same demo convention: reads report a disconnected
+// session, mutations fake-succeed with the real response shapes. Bourse Direct
+// has no handlers at all, which leaves its panel reading `isActive: undefined`
+// in demo mode; do not copy that gap here.
+const demoAmundiStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/amundi/status'), () => demoAmundiStatus)
+handlers.set(key('POST', '/amundi/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/amundi/auth/complete'), () => demoAmundiStatus)
+handlers.set(key('POST', '/amundi/sync'), () => demoAmundiStatus)
+handlers.set(key('DELETE', '/amundi/session'), () => null)
+
 // Trade Republic - session status
 handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))
 
@@ -554,16 +600,24 @@ handlers.set(key('POST', '/tr/import'), () => [])
 // Trade Republic - logout
 handlers.set(key('POST', '/tr/logout'), () => null)
 
-// Crypto exchange - add
-handlers.set(key('POST', '/crypto/exchange'), () => ({
-  id: Date.now(), name: 'Binance', type: 'CRYPTO' as const, provider: 'BINANCE', currency: 'USDT', currentBalance: 0, currentBalanceEur: 0, lastSyncedAt: null, isManual: false, color: '#f59e0b', ticker: null, createdAt: new Date().toISOString()
-}))
+// Crypto exchange - add. Echoes the chosen exchange rather than hardcoding one, so the demo
+// reflects whichever exchange the user picked.
+handlers.set(key('POST', '/crypto/exchange'), (config) => {
+  const body = JSON.parse(config.data || '{}')
+  const provider = body.type ?? 'BINANCE'
+  return {
+    id: Date.now(), name: provider, type: 'CRYPTO' as const, provider, currency: 'EUR', currentBalance: 0, currentBalanceEur: 0, lastSyncedAt: null, isManual: false, color: '#f59e0b', ticker: null, logoUrl: null, createdAt: new Date().toISOString()
+  }
+})
 
-// Crypto exchange - sync
+// Crypto exchange - sync (one route per mockExchangeStatuses entry: an unmapped route resolves
+// `{}` and the row's buttons silently misbehave)
 handlers.set(key('POST', '/crypto/exchange/1/sync'), () => [])
+handlers.set(key('POST', '/crypto/exchange/2/sync'), () => [])
 
 // Crypto exchange - remove
 handlers.set(key('DELETE', '/crypto/exchange/1'), () => null)
+handlers.set(key('DELETE', '/crypto/exchange/2'), () => null)
 
 // Crypto wallet - add
 handlers.set(key('POST', '/crypto/wallet'), () => ({

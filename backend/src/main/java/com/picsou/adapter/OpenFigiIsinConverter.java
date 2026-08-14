@@ -34,6 +34,9 @@ public class OpenFigiIsinConverter {
     private static final java.util.regex.Pattern ISIN_PATTERN =
         java.util.regex.Pattern.compile("[A-Z]{2}[A-Z0-9]{9}[A-Z0-9]");
 
+    private static final java.util.regex.Pattern SYMBOL_PATTERN =
+        java.util.regex.Pattern.compile("[A-Z0-9][A-Z0-9.-]{0,14}");
+
     /**
      * Whether {@code s} looks like an ISIN (2-letter country code + 9 alphanumerics
      * + 1 check digit = 12 chars). Case-insensitive; trims surrounding whitespace.
@@ -250,18 +253,35 @@ public class OpenFigiIsinConverter {
      * Picks the best Yahoo Finance ticker + name from OpenFIGI results.
      * Strategy:
      * 1. Home exchange (based on ISIN country) — best Yahoo coverage
-     * 2. US OTC/ADR — good Yahoo coverage for international stocks
+     * 2. US OTC/ADR — for non-US ISINs, US listings often have best Yahoo coverage
      * 3. EU exchanges — EUR pricing
      * 4. Any known exchange
+     *
+     * Tried reversing 2 and 3 (2026-08-05) on the theory that Irish/Luxembourg-
+     * domiciled UCITS ETFs — which have no {@code HOME_EXCHANGE} entry — would
+     * be better served by their real European listing than a thin US OTC ticker.
+     * That was true for one holding (IE000BI8OT95 "MWRD" — OTC "MWRDF" has no
+     * live Yahoo quote, EU "WRDU.AS" does) but **broke two others on the same
+     * live portfolio**: IE00BGSF1X88 and IE00BD6FTQ80 resolve to Yahoo-unlisted
+     * EU tickers (`IB01.AS`, `SC0L.DE` — both confirmed "No data found, symbol
+     * may be delisted"), while their original US OTC tickers (`ISHUF`,
+     * `IBBCF`) are confirmed live and priced. Reverted: there is no exchange-
+     * code heuristic that reliably predicts which specific ticker variant
+     * actually has a live Yahoo quote for a given Irish/Luxembourg ISIN — it
+     * varies per instrument, and swapping the global order traded one broken
+     * holding for two different ones. A holding with no live price surfaces as
+     * a missing "Valeur" in the UI (see the FX-conversion ADR) rather than a
+     * wrong one either way, so this is a real but currently-accepted gap, not
+     * a bug to paper over with an unvalidated reordering.
      */
-    private TickerResult pickBest(String isin, List<Map<String, Object>> entries) {
+    TickerResult pickBest(String isin, List<Map<String, Object>> entries) {
         // Build a map: exchCode → (yahooTicker, name)
         Map<String, String[]> byExchange = new java.util.LinkedHashMap<>();
         for (Map<String, Object> entry : entries) {
-            String ticker = (String) entry.get("ticker");
+            String ticker = normalizeSymbol((String) entry.get("ticker"));
             String exchCode = (String) entry.get("exchCode");
             String name = (String) entry.get("name");
-            if (ticker == null || ticker.isBlank() || exchCode == null) continue;
+            if (ticker == null || exchCode == null) continue;
 
             String suffix = EXCHANGE_SUFFIX.get(exchCode);
             if (suffix != null && !byExchange.containsKey(exchCode)) {
@@ -304,14 +324,22 @@ public class OpenFigiIsinConverter {
 
         // 5. Raw ticker from first entry
         for (Map<String, Object> entry : entries) {
-            String ticker = (String) entry.get("ticker");
+            String ticker = normalizeSymbol((String) entry.get("ticker"));
             String name = (String) entry.get("name");
-            if (ticker != null && !ticker.isBlank()) {
+            if (ticker != null) {
                 return new TickerResult(ticker, name);
             }
         }
 
         return null;
+    }
+
+    private static String normalizeSymbol(String ticker) {
+        if (ticker == null) {
+            return null;
+        }
+        String normalized = ticker.trim().toUpperCase(Locale.ROOT);
+        return SYMBOL_PATTERN.matcher(normalized).matches() ? normalized : null;
     }
 
     record MappingJob(
