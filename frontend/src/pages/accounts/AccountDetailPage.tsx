@@ -384,8 +384,7 @@ export function AccountDetailPage() {
       {/* Realized P&L on closed positions (investment accounts only) */}
       {showHoldings && <RealizedPnlSection accountId={accountId} enabled={showHoldings} />}
 
-      {/* Savings accounts: split into Overview / Config tabs so the page stays clean.
-          Other account types keep the flat layout. */}
+      {/* Savings accounts: split into Overview / Config tabs so the page stays clean. */}
       {isSavings && account ? (
         <Tabs defaultValue="overview">
           <TabsList>
@@ -404,9 +403,12 @@ export function AccountDetailPage() {
             />
           </TabsContent>
         </Tabs>
+      ) : (
+        overviewSections
+      )}
 
       {/* Transactions */}
-      ) : !isLoan && (transactions ? (
+      {!isLoan && (transactions ? (
         <>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-base font-semibold">{t('accounts.transactions')}</h3>
@@ -428,9 +430,7 @@ export function AccountDetailPage() {
             onEdit={(tx) => setEditingTx(tx)}
           />
         </>
-      ) : (
-        overviewSections
-      )}
+      ) : null)}
 
       {/* Add Transaction modal */}
       {account && (

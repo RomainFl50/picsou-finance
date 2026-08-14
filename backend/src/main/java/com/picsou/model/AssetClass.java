@@ -18,8 +18,8 @@ public enum AssetClass {
     public static AssetClass of(AccountType type) {
         return switch (type) {
             case CHECKING -> CURRENT;
-            case LEP, SAVINGS -> SAVINGS;
-            case PEA, COMPTE_TITRES, CRYPTO -> INVESTMENT;
+            case LEP, SAVINGS, LIVRET_A, LDDS, LIVRET_JEUNE, PEL, CEL -> SAVINGS;
+            case PEA, COMPTE_TITRES, CRYPTO, EMPLOYEE_SAVINGS -> INVESTMENT;
             case REAL_ESTATE, LOAN, OTHER -> OTHER;
         };
     }
