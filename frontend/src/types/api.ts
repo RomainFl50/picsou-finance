@@ -1,14 +1,184 @@
 export type AccountType =
-  | 'LEP' | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
+  | 'LEP' | 'LIVRET_A' | 'LDDS' | 'LIVRET_JEUNE' | 'PEL' | 'CEL'
+  | 'PEA' | 'COMPTE_TITRES' | 'CRYPTO' | 'CHECKING' | 'SAVINGS'
   | 'REAL_ESTATE' | 'LOAN' | 'EMPLOYEE_SAVINGS' | 'OTHER'
+
+export type PropertyKind = 'HOUSE' | 'APARTMENT' | 'BUILDING' | 'LAND' | 'PARKING' | 'COMMERCIAL'
+
+export type PropertyCategory =
+  | 'PRIMARY_RESIDENCE' | 'SECONDARY_RESIDENCE' | 'RENTAL' | 'LAND' | 'OTHER'
+
+/** Only houses and apartments have a reliable price per m² in the open data. */
+export const ESTIMABLE_PROPERTY_KINDS: PropertyKind[] = ['HOUSE', 'APARTMENT']
+
+export type ValuationMode = 'ESTIMATED' | 'MANUAL'
+
+export type ValuationConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
+
+export type ValuationStatus =
+  | 'OK'
+  | 'UNSUPPORTED_AREA'
+  | 'NOT_ESTIMABLE'
+  | 'INCOMPLETE_DATA'
+  | 'GEOCODING_FAILED'
+  | 'NO_COMPARABLE_DATA'
+  | 'PROVIDER_UNAVAILABLE'
 
 export interface RealEstateMetadata {
   purchasePrice: number
   purchaseDate: string | null
-  surfaceArea: number | null
-  address: string | null
+  agencyFees: number | null
+  notaryFees: number | null
+  worksCost: number | null
+  /** Purchase price plus every acquisition fee — what gain/loss is measured against. */
+  costBasis: number
   propertyType: string | null
+  /**
+   * `propertyType` normalised by the backend's lenient `PropertyKind.parse`, or null when the
+   * free-text column holds something it does not recognise. Branch on this, not on the raw
+   * string — old rows predate the enum and may hold French labels.
+   */
+  propertyKind: PropertyKind | null
+  category: PropertyCategory | null
+  description: string | null
+  address: string | null
+  postalCode: string | null
+  city: string | null
+  country: string | null
+  /** Present once geocoded; its absence is why a valuation cannot run. */
+  inseeCode: string | null
+  latitude: number | null
+  longitude: number | null
+  geocodeScore: number | null
+  geocodedAt: string | null
+  surfaceArea: number | null
+  landArea: number | null
+  constructionYear: number | null
+  rooms: number | null
+  bedrooms: number | null
+  bathrooms: number | null
+  floorNumber: number | null
+  floorsTotal: number | null
+  hasElevator: boolean | null
+  garageCount: number | null
+  parkingCount: number | null
+  hasGarden: boolean | null
+  hasTerrace: boolean | null
+  hasBalcony: boolean | null
+  energyClass: string | null
+  valuationMode: ValuationMode
+  /** Date of the newest valuation (`YYYY-MM-DD`), or null if the property was never valued. */
+  lastValuedAt: string | null
   rentalIncome: number | null
+}
+
+export interface PropertyAdjustment {
+  code: string
+  factor: number | null
+  sqm: number | null
+  amount: number | null
+}
+
+export interface PropertyValuation {
+  status: ValuationStatus
+  mode: ValuationMode
+  appliedToBalance: boolean
+  estimatedValue: number | null
+  lowValue: number | null
+  highValue: number | null
+  pricePerSqm: number | null
+  sampleSize: number | null
+  confidence: ValuationConfidence | null
+  sourceYear: number | null
+  provider: string | null
+  scale: string | null
+  valuedAt: string | null
+  reindexRatio: number | null
+  adjustments: PropertyAdjustment[]
+}
+
+export interface PropertyValuationHistoryEntry {
+  valuedAt: string
+  estimatedValue: number
+  lowValue: number | null
+  highValue: number | null
+  pricePerSqm: number | null
+  provider: string
+  confidence: ValuationConfidence | null
+  sampleSize: number | null
+  sourceYear: number | null
+}
+
+export interface MemberShare {
+  memberId: number
+  displayName: string
+  avatarColor: string
+  sharePercent: number
+  isOwner: boolean
+}
+
+export interface Ownership {
+  shares: MemberShare[]
+  totalAssigned: number
+  /** 100 − totalAssigned: held outside Picsou, so counted in nobody's net worth. */
+  unassigned: number
+}
+
+export interface OwnershipRequest {
+  shares: { memberId: number; sharePercent: number }[]
+}
+
+export interface LinkedLoan {
+  accountId: number
+  name: string
+  lenderName: string | null
+  outstandingBalance: number
+  sharePercent: number
+  monthlyPayment: number | null
+  endDate: string | null
+}
+
+export interface RealEstatePropertyLine {
+  accountId: number
+  name: string
+  color: string
+  propertyType: string | null
+  category: string | null
+  city: string | null
+  sharePercent: number
+  grossValue: number
+  outstandingDebt: number
+  netValue: number
+  costBasis: number
+  unrealizedGain: number
+  surfaceArea: number | null
+  rentalIncome: number | null
+  valuationMode: ValuationMode
+  lastValuedAt: string | null
+  lastConfidence: ValuationConfidence | null
+  loans: LinkedLoan[]
+}
+
+export interface RealEstateSummary {
+  grossValue: number
+  outstandingDebt: number
+  netValue: number
+  costBasis: number
+  unrealizedGain: number
+  unrealizedGainPercent: number | null
+  loanToValue: number | null
+  monthlyRentalIncome: number
+  properties: RealEstatePropertyLine[]
+}
+
+export interface GeocodeSuggestion {
+  label: string
+  score: number | null
+  postcode: string | null
+  city: string | null
+  inseeCode: string | null
+  latitude: number | null
+  longitude: number | null
 }
 
 export interface DebtInfo {
@@ -38,6 +208,8 @@ export interface Account {
   color: string
   ticker: string | null
   logoUrl: string | null
+  /** Key of a bundled frontend asset (`lib/provider-logos.ts`); null for accounts with no choice made. */
+  logoKey: string | null
   createdAt: string
   realEstate?: RealEstateMetadata
   debt?: DebtInfo
@@ -50,6 +222,10 @@ export interface Account {
   savingsConfig?: SavingsConfig | null
   /** Display-only visibility flag; hidden account still syncs normally. */
   hidden: boolean
+  /** Set only when the member owns less than all of it — the co-ownership badge signal. */
+  sharePercent?: number | null
+  /** Whether the viewer administers the account. Holding a share does not grant write access. */
+  isOwner?: boolean | null
 }
 
 export interface AccountRequest {
@@ -61,15 +237,45 @@ export interface AccountRequest {
   isManual: boolean
   color?: string
   ticker?: string
+  /** Omitted leaves the stored key untouched — the backend only overwrites it when set. */
+  logoKey?: string
+  /**
+   * The bank picked in the account form, as the catalog's own id. Consumed server-side to
+   * resolve the logo (never sent as a URL — see `docs/features/bank-logos.md`) and not stored.
+   */
+  institutionId?: string
 }
 
 export interface RealEstateMetadataRequest {
   purchasePrice: number
-  purchaseDate?: string
-  surfaceArea?: number
-  address?: string
-  propertyType?: string
-  rentalIncome?: number
+  purchaseDate?: string | null
+  agencyFees?: number | null
+  notaryFees?: number | null
+  worksCost?: number | null
+  propertyType?: string | null
+  category?: PropertyCategory | null
+  description?: string | null
+  address?: string | null
+  postalCode?: string | null
+  city?: string | null
+  country?: string | null
+  surfaceArea?: number | null
+  landArea?: number | null
+  constructionYear?: number | null
+  rooms?: number | null
+  bedrooms?: number | null
+  bathrooms?: number | null
+  floorNumber?: number | null
+  floorsTotal?: number | null
+  hasElevator?: boolean | null
+  garageCount?: number | null
+  parkingCount?: number | null
+  hasGarden?: boolean | null
+  hasTerrace?: boolean | null
+  hasBalcony?: boolean | null
+  energyClass?: string | null
+  valuationMode?: ValuationMode
+  rentalIncome?: number | null
 }
 
 export interface DebtRequest {
@@ -360,6 +566,15 @@ export interface TrSessionStatus {
   expiresAt: string | null
 }
 
+/**
+ * What deleting an account costs beyond the account itself. `connectionLabel` names the
+ * connection that goes with it — null when nothing else is removed.
+ */
+export interface AccountDeletionImpact {
+  removesConnection: boolean
+  connectionLabel: string | null
+}
+
 export interface IbkrConnectionStatus {
   connected: boolean
   connectionId: number | null
@@ -368,9 +583,10 @@ export interface IbkrConnectionStatus {
   maskedToken: string | null
 }
 
-export interface BoursoSessionStatus {
+interface BoursoSessionStatusBase {
   isActive: boolean
-  expiresAt: string | null
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
 }
 
 export interface RevolutSessionStatus {
@@ -379,11 +595,38 @@ export interface RevolutSessionStatus {
   lastSyncedAt: string | null
 }
 
+export type BoursoSessionStatus =
+  | (BoursoSessionStatusBase & {
+      syncStatus: 'FAILED'
+      lastSyncError: BoursoErrorCode
+    })
+  | (BoursoSessionStatusBase & {
+      syncStatus: 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCESS'
+      lastSyncError: null
+    })
+
+/**
+ * No `INVALID_OTP`: BoursoBank's app validation is the only second factor the
+ * connector drives, so there is never a code to reject. An SMS or e-mail prompt
+ * surfaces as `MFA_TYPE_UNSUPPORTED` instead.
+ */
+export type BoursoErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'MFA_TYPE_UNSUPPORTED'
+  | 'APP_VALIDATION_TIMEOUT'
+  | 'AUTH_ATTEMPT_EXPIRED'
+  | 'SESSION_EXPIRED'
+  | 'PORTFOLIO_INCOMPLETE'
+  | 'UPSTREAM_FORMAT_CHANGED'
+  | 'UPSTREAM_UNAVAILABLE'
+  | 'INVALID_DATA'
+  | 'INTERNAL_ERROR'
+
+/** `mfaType` is always `APP_PUSH` when a second factor is required. */
 export interface BoursoAuthInitResponse {
   processId: string | null
   mfaRequired: boolean
-  mfaType: string | null
-  contact: string | null
+  mfaType: 'APP_PUSH' | null
 }
 
 export type DegiroSessionStatusValue = 'ACTIVE' | 'REAUTH_REQUIRED' | 'FAILED'

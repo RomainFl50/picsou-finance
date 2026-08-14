@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { accountsApi } from './api'
-import type { AccountRequest, Account, DebtRequest, HoldingResponse, RealEstateMetadataRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
+import { accountsApi, realEstateApi } from './api'
+import type { AccountRequest, Account, DebtRequest, HoldingResponse, OwnershipRequest, RealEstateMetadataRequest, TransactionImportRequest, TransactionRequest } from '@/types/api'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
 
 export interface HoldingWithAccount extends HoldingResponse {
@@ -55,29 +55,29 @@ export function usePortfolio() {
 
       // Accounts with holdings — expand each holding as a line
       const holdingAccounts = accounts.filter(a => HOLDING_ACCOUNT_TYPES.includes(a.type))
+      // No per-account catch: dropping a failed account's holdings silently understated
+      // every total built from these lines (portfolio value, allocation, P&L) with nothing
+      // on screen saying so. A failure now rejects the query and the surfaces render their
+      // error state instead of a plausible-looking wrong number.
       const holdingResults = await Promise.all(
         holdingAccounts.map(async (account): Promise<PortfolioLine[]> => {
-          try {
-            const holdings = await accountsApi.holdings(account.id)
-            return holdings.map(h => ({
-              id: `${account.id}-${h.ticker}`,
-              name: h.name ?? h.ticker,
-              ticker: h.ticker,
-              quantity: h.quantity,
-              accountName: account.name,
-              accountType: account.type,
-              accountColor: account.color,
-              valueEur: h.currentValueEur ?? 0,
-              costBasisEur: h.costBasisEur,
-              averageBuyIn: h.averageBuyIn,
-              quoteCurrency: h.quoteCurrency ?? null,
-              pnlEur: h.pnlEur,
-              pnlPercent: h.pnlPercent,
-              priceUpdatedAt: h.priceUpdatedAt,
-            }))
-          } catch {
-            return []
-          }
+          const holdings = await accountsApi.holdings(account.id)
+          return holdings.map(h => ({
+            id: `${account.id}-${h.ticker}`,
+            name: h.name ?? h.ticker,
+            ticker: h.ticker,
+            quantity: h.quantity,
+            accountName: account.name,
+            accountType: account.type,
+            accountColor: account.color,
+            valueEur: h.currentValueEur ?? 0,
+            costBasisEur: h.costBasisEur,
+            averageBuyIn: h.averageBuyIn,
+            quoteCurrency: h.quoteCurrency ?? null,
+            pnlEur: h.pnlEur,
+            pnlPercent: h.pnlPercent,
+            priceUpdatedAt: h.priceUpdatedAt,
+          }))
         }),
       )
       lines.push(...holdingResults.flat())
@@ -134,6 +134,10 @@ export function usePortfolio() {
       return enriched
     },
     staleTime: QUERY_STALE_TIMES.accountDetail,
+    // Keep live prices actually live in an open tab (refetchOnWindowFocus is
+    // globally off). PriceFreshnessDot's 3 min "live" threshold deliberately
+    // sits above this 2 min interval (+ latency) so the dot doesn't flicker.
+    refetchInterval: QUERY_STALE_TIMES.accountDetail,
   })
 }
 
@@ -191,14 +195,9 @@ export function useAccount(id: number) {
   })
 }
 
-export function useAccountHoldings(id: number) {
-  return useQuery({
-    queryKey: ['accounts', id, 'holdings'],
-    queryFn: () => accountsApi.holdings(id),
-    staleTime: QUERY_STALE_TIMES.accountDetail,
-    enabled: !!id,
-  })
-}
+// (useAccountHoldings was removed: it was unused and shared the query key
+// ['accounts', id, 'holdings'] with useHoldingsWithLivePrices while running a
+// different queryFn — a cache-collision trap.)
 
 export function useAccountPositions(id: number) {
   return useQuery({
@@ -238,6 +237,8 @@ export function useHoldingsWithLivePrices(id: number) {
       }
     },
     staleTime: QUERY_STALE_TIMES.accountDetail,
+    // Same rationale as usePortfolio: the "live" dot must not outlive the data.
+    refetchInterval: QUERY_STALE_TIMES.accountDetail,
     enabled: !!id,
   })
 }
@@ -283,6 +284,20 @@ export function useUpdateAccount() {
   })
 }
 
+/**
+ * What the confirmation dialog needs to warn about before a deletion: whether the connection
+ * feeding this account goes with it, and its name. Fetched on demand (when a dialog opens with
+ * an id) rather than folded into the account list, which would cost one query per account for
+ * a value only ever read at that moment.
+ */
+export function useAccountDeletionImpact(accountId: number | null) {
+  return useQuery({
+    queryKey: ['accounts', accountId, 'deletion-impact'],
+    queryFn: () => accountsApi.deletionImpact(accountId!),
+    enabled: accountId !== null,
+  })
+}
+
 export function useDeleteAccount() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -313,7 +328,9 @@ export function useUpdateRealEstateMetadata() {
     mutationFn: ({ id, data }: { id: number; data: RealEstateMetadataRequest }) =>
       accountsApi.updateRealEstateMetadata(id, data),
     onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
       queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
+      queryClient.invalidateQueries({ queryKey: ['real-estate'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },
   })
@@ -328,6 +345,69 @@ export function useUpdateDebtMetadata() {
       queryClient.invalidateQueries({ queryKey: ['accounts', variables.id] })
       queryClient.invalidateQueries({ queryKey: ['loan-summary', variables.id] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
+/** Whole-portfolio property roll-up: gross value, mortgage debt and net equity. */
+export function useRealEstateSummary(enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['real-estate', 'summary'],
+    queryFn: () => realEstateApi.summary(),
+    staleTime: QUERY_STALE_TIMES.realEstate,
+    enabled,
+  })
+}
+
+export function usePropertyValuations(accountId: number, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['real-estate', accountId, 'valuations'],
+    queryFn: () => realEstateApi.valuations(accountId),
+    staleTime: QUERY_STALE_TIMES.realEstate,
+    enabled: enabled && Number.isFinite(accountId),
+  })
+}
+
+/**
+ * Triggers a fresh estimate.
+ *
+ * <p>Invalidates the dashboard too: in ESTIMATED mode this writes the account balance, so
+ * net worth moves with it.
+ */
+export function useRefreshValuation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => accountsApi.refreshValuation(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['real-estate'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['real-estate', id, 'valuations'] })
+    },
+  })
+}
+
+export function useOwnership(id: number, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['accounts', id, 'ownership'],
+    queryFn: () => accountsApi.ownership(id),
+    staleTime: QUERY_STALE_TIMES.accountDetail,
+    enabled: enabled && Number.isFinite(id),
+  })
+}
+
+/** Changing a split changes every total the member sees, so this invalidates broadly. */
+export function useUpdateOwnership() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: OwnershipRequest }) =>
+      accountsApi.updateOwnership(id, data),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', variables.id, 'ownership'] })
+      queryClient.invalidateQueries({ queryKey: ['real-estate'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['history'] })
     },
   })
 }

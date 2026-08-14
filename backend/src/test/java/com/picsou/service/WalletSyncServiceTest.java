@@ -369,14 +369,18 @@ class WalletSyncServiceTest {
     void removeWallet_deletesTheWalletAndItsAccount() {
         WalletAddress wallet = wallet(1L, Chain.EVM, "0xabc");
         when(walletRepository.findByIdAndMemberId(1L, MEMBER_ID)).thenReturn(Optional.of(wallet));
-        Account account = mock(Account.class);
+        Account account = new Account();
         // The external id must match exactly what sync() builds, or removal orphans the account.
         when(accountRepository.findByExternalAccountIdAndMemberId("wallet_evm_1", MEMBER_ID))
             .thenReturn(Optional.of(account));
 
         serviceWith().removeWallet(1L, MEMBER_ID);
 
-        verify(accountRepository).delete(account);
+        // Soft delete: balance_snapshot cascades on account, so a row delete would take the
+        // wallet's whole history with it. See removeWallet_softDeletesTheAccount_keepingItsHistory.
+        assertThat(account.getDeletedAt()).isNotNull();
+        verify(accountRepository).save(account);
+        verify(accountRepository, never()).delete(any());
         verify(walletRepository).delete(wallet);
     }
 
@@ -510,6 +514,34 @@ class WalletSyncServiceTest {
         // No ticker on the account: the balance is already EUR, so a ticker here would
         // make liveBalanceEur convert it a second time.
         assertThat(account.getTicker()).isNull();
+        // provider is the native ticker, so the frontend's provider -> logo map can never
+        // match a wallet. This key is the only thing that gives it one (V75 backfilled the
+        // wallets that predate it).
+        assertThat(account.getLogoKey()).isEqualTo(WalletSyncService.DEFAULT_LOGO_KEY);
+    }
+
+    @Test
+    void sync_keepsTheLogoAUserPicked_whenTheAccountAlreadyExists() {
+        // resolveAccount refreshes only balance/lastSyncedAt/ticker on an account it finds --
+        // re-seeding the default here would drag every Ledger back to the generic mark on the
+        // next scheduled sync, silently and daily.
+        WalletAddress wallet = wallet(1L, Chain.EVM, "0xabc");
+        when(walletRepository.findByIdAndMemberId(1L, MEMBER_ID)).thenReturn(Optional.of(wallet));
+
+        WalletPort adapter = mock(WalletPort.class);
+        when(adapter.chain()).thenReturn(Chain.EVM);
+        when(adapter.fetchBalances(any())).thenReturn(List.of(new WalletBalance("ETH", BigDecimal.ONE)));
+        when(priceService.refreshPrices(any())).thenReturn(Map.of("ETH", new BigDecimal("2000")));
+        Account existing = Account.builder().id(100L).logoKey("ledger").build();
+        when(accountRepository.findByExternalAccountIdAndMemberId("wallet_evm_1", MEMBER_ID))
+            .thenReturn(Optional.of(existing));
+        when(accountRepository.save(any())).thenReturn(existing);
+
+        serviceWith(adapter).sync(1L, MEMBER_ID);
+
+        ArgumentCaptor<Account> saved = ArgumentCaptor.forClass(Account.class);
+        verify(accountRepository).save(saved.capture());
+        assertThat(saved.getValue().getLogoKey()).isEqualTo("ledger");
     }
 
     @Test
@@ -609,6 +641,81 @@ class WalletSyncServiceTest {
 
         // The sync completed against the surviving account rather than failing or duplicating.
         verify(accountService).upsertSnapshot(eq(winner), any(), any());
+    }
+
+    /**
+     * The regression this whole change exists for: without the guard, every scheduled resync of
+     * a wallet whose account the user had deleted inserted a brand new account row — one
+     * duplicate per deletion, each starting the balance history over.
+     */
+    @Test
+    void sync_refusesToResurrectAnAccountTheUserDeleted() {
+        WalletAddress wallet = wallet(2L, Chain.BITCOIN, "bc1qexample");
+        when(walletRepository.findByIdAndMemberId(2L, MEMBER_ID)).thenReturn(Optional.of(wallet));
+
+        WalletPort adapter = mock(WalletPort.class);
+        when(adapter.chain()).thenReturn(Chain.BITCOIN);
+        when(adapter.fetchBalances(any())).thenReturn(List.of(new WalletBalance("BTC", BigDecimal.ONE)));
+        when(priceService.refreshPrices(any())).thenReturn(Map.of("BTC", new BigDecimal("50000")));
+        when(accountRepository.findByExternalAccountIdAndMemberId("wallet_bitcoin_2", MEMBER_ID))
+            .thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId("wallet_bitcoin_2", MEMBER_ID))
+            .thenReturn(true);
+
+        assertThatThrownBy(() -> serviceWith(adapter).sync(2L, MEMBER_ID))
+            .isInstanceOf(SyncException.class)
+            .hasMessageContaining("deleted");
+
+        // Nothing was written: no account, no holding, no snapshot.
+        verify(accountRepository, never()).save(any());
+        verify(accountService, never()).upsertHolding(any(), any(), any(), any(), any(), any());
+        verify(accountService, never()).upsertSnapshot(any(), any(), any());
+    }
+
+    /**
+     * A deleted account is a choice, not a failure. Counting it as one would put the wallet's
+     * chain in {@code failed} and log an ERROR on every scheduled run, forever.
+     */
+    @Test
+    void resyncAll_countsADeletedAccountAsSkipped_neitherSucceededNorFailed() {
+        WalletAddress wallet = wallet(2L, Chain.BITCOIN, "bc1qexample");
+        when(walletRepository.findAllByMemberId(MEMBER_ID)).thenReturn(List.of(wallet));
+        when(walletRepository.findByIdAndMemberId(2L, MEMBER_ID)).thenReturn(Optional.of(wallet));
+
+        WalletPort adapter = mock(WalletPort.class);
+        when(adapter.chain()).thenReturn(Chain.BITCOIN);
+        when(adapter.fetchBalances(any())).thenReturn(List.of(new WalletBalance("BTC", BigDecimal.ONE)));
+        when(priceService.refreshPrices(any())).thenReturn(Map.of("BTC", new BigDecimal("50000")));
+        when(accountRepository.findByExternalAccountIdAndMemberId("wallet_bitcoin_2", MEMBER_ID))
+            .thenReturn(Optional.empty());
+        when(accountRepository.existsSoftDeletedByExternalAccountIdAndMemberId("wallet_bitcoin_2", MEMBER_ID))
+            .thenReturn(true);
+
+        WalletSyncService.ResyncSummary summary = serviceWith(adapter).resyncAll(MEMBER_ID);
+
+        assertThat(summary.total()).isEqualTo(1);
+        assertThat(summary.succeeded()).isZero();
+        assertThat(summary.failed()).isEmpty();
+    }
+
+    /**
+     * balance_snapshot cascades on account, so deleting the row would take the wallet's whole
+     * net-worth history with it — and leave nothing for the guard above to recognise.
+     */
+    @Test
+    void removeWallet_softDeletesTheAccount_keepingItsHistory() {
+        WalletAddress wallet = wallet(2L, Chain.BITCOIN, "bc1qexample");
+        when(walletRepository.findByIdAndMemberId(2L, MEMBER_ID)).thenReturn(Optional.of(wallet));
+        Account account = new Account();
+        when(accountRepository.findByExternalAccountIdAndMemberId("wallet_bitcoin_2", MEMBER_ID))
+            .thenReturn(Optional.of(account));
+
+        serviceWith().removeWallet(2L, MEMBER_ID);
+
+        assertThat(account.getDeletedAt()).isNotNull();
+        verify(accountRepository).save(account);
+        verify(accountRepository, never()).delete(any());
+        verify(walletRepository).delete(wallet);
     }
 
     @Test

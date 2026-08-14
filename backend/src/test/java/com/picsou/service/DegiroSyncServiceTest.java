@@ -241,6 +241,10 @@ class DegiroSyncServiceTest {
         return new AccountResponse(
             1L, "DEGIRO", AccountType.COMPTE_TITRES, "DEGIRO", "EUR",
             BigDecimal.TEN, BigDecimal.TEN, BigDecimal.TEN, Instant.now(),
-            false, "#f97316", null, null, Instant.now(), null, null);
+            false, "#f97316", null, null, null, Instant.now(), null, null,
+            null, null, false,
+            // Ownership shares (this branch): a wholly-owned account carries a null
+            // share and is administered by its member.
+            null, true);
     }
 }

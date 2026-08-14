@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { Account, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, RealEstateMetadataRequest, RealEstateMetadata, RealizedPnlResponse, SecurityInsight, Transaction, TransactionImportPreviewResponse, TransactionImportRequest, TransactionImportResultResponse, TransactionRequest, ExchangePositionResponse } from '@/types/api'
+import type { Account, AccountDeletionImpact, AccountRequest, BalanceSnapshot, DebtRequest, DebtInfo, HoldingResponse, LoanScheduleResponse, Ownership, OwnershipRequest, PropertyValuation, PropertyValuationHistoryEntry, RealEstateMetadataRequest, RealEstateMetadata, RealEstateSummary, RealizedPnlResponse, SecurityInsight, Transaction, TransactionImportPreviewResponse, TransactionImportRequest, TransactionImportResultResponse, TransactionRequest, ExchangePositionResponse } from '@/types/api'
 
 export const accountsApi = {
   list: () => api.get<Account[]>('/accounts').then(r => r.data),
@@ -7,6 +7,8 @@ export const accountsApi = {
   create: (data: AccountRequest) => api.post<Account>('/accounts', data).then(r => r.data),
   update: (id: number, data: AccountRequest) => api.put<Account>(`/accounts/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/accounts/${id}`),
+  deletionImpact: (id: number) =>
+    api.get<AccountDeletionImpact>(`/accounts/${id}/deletion-impact`).then(r => r.data),
   history: (id: number, from?: string, to?: string) =>
     api.get<BalanceSnapshot[]>(`/accounts/${id}/history`, { params: { from, to } }).then(r => r.data),
   holdings: (id: number) =>
@@ -69,4 +71,20 @@ export const accountsApi = {
   listAll: () => api.get<Account[]>('/accounts', { params: { includeHidden: true } }).then(r => r.data),
   setVisibility: (id: number, hidden: boolean) =>
     api.put<Account>(`/accounts/${id}/visibility`, { hidden }).then(r => r.data),
+  /**
+   * Always resolves: a non-OK `status` in the body explains why no figure could be produced
+   * (uncovered area, missing living area) and is information to render, not an error.
+   */
+  refreshValuation: (id: number) =>
+    api.post<PropertyValuation>(`/accounts/${id}/valuation/refresh`).then(r => r.data),
+  ownership: (id: number) =>
+    api.get<Ownership>(`/accounts/${id}/ownership`).then(r => r.data),
+  updateOwnership: (id: number, data: OwnershipRequest) =>
+    api.put<Ownership>(`/accounts/${id}/ownership`, data).then(r => r.data),
+}
+
+export const realEstateApi = {
+  summary: () => api.get<RealEstateSummary>('/real-estate/summary').then(r => r.data),
+  valuations: (accountId: number) =>
+    api.get<PropertyValuationHistoryEntry[]>(`/real-estate/${accountId}/valuations`).then(r => r.data),
 }

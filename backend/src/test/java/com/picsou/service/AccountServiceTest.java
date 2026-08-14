@@ -1,17 +1,24 @@
 package com.picsou.service;
 
+import com.picsou.dto.AccountRequest;
 import com.picsou.dto.AccountResponse;
 import com.picsou.dto.DebtRequest;
 import com.picsou.dto.HoldingResponse;
+import com.picsou.dto.RealEstateMetadataResponse;
 import com.picsou.exception.ResourceNotFoundException;
 import com.picsou.model.Account;
 import com.picsou.model.AccountHolding;
 import com.picsou.model.AccountType;
 import com.picsou.model.Debt;
+import com.picsou.model.FamilyMember;
+import com.picsou.model.PropertyKind;
+import com.picsou.model.PropertyValuation;
+import com.picsou.model.RealEstateMetadata;
 import com.picsou.repository.AccountHoldingRepository;
 import com.picsou.repository.AccountRepository;
 import com.picsou.repository.BalanceSnapshotRepository;
 import com.picsou.repository.DebtRepository;
+import com.picsou.repository.PropertyValuationRepository;
 import com.picsou.repository.RealEstateMetadataRepository;
 import com.picsou.repository.SavingsInterestConfigRepository;
 import com.picsou.repository.TransactionRepository;
@@ -45,10 +52,12 @@ class AccountServiceTest {
     @Mock AccountHoldingRepository holdingRepository;
     @Mock TransactionRepository transactionRepository;
     @Mock RealEstateMetadataRepository realEstateMetadataRepository;
+    @Mock PropertyValuationRepository propertyValuationRepository;
     @Mock DebtRepository debtRepository;
     @Mock SavingsInterestConfigRepository savingsInterestConfigRepository;
     @Mock PriceService priceService;
     @Mock LoanAmortizationService loanAmortizationService;
+    @Mock BankLogoResolver bankLogoResolver;
     @InjectMocks AccountService accountService;
 
     private Account ownedAccount() {
@@ -74,6 +83,216 @@ class AccountServiceTest {
             }
         }
         when(priceService.getQuotes(any())).thenReturn(quotes);
+    }
+
+    // ─── logo key ─────────────────────────────────────────────────────────────
+
+    @Test
+    void update_setsTheLogoKeyThePickerSent() {
+        Account account = Account.builder().id(1L).name("BITCOIN Wallet").type(AccountType.CRYPTO)
+            .currency("EUR").logoKey("blockchain").build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, logoRequest("ledger"), 7L);
+
+        assertThat(account.getLogoKey()).isEqualTo("ledger");
+    }
+
+    @Test
+    void update_keepsTheStoredLogoKey_whenTheClientSendsNone() {
+        // Unlike ticker, an absent logoKey means "this client doesn't know about logos" -- the
+        // MCP update_account tool sends none. Clearing it there would drop a wallet's Ledger
+        // mark as a side effect of renaming the account.
+        Account account = Account.builder().id(1L).name("BITCOIN Wallet").type(AccountType.CRYPTO)
+            .currency("EUR").logoKey("ledger").build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, logoRequest(null), 7L);
+
+        assertThat(account.getLogoKey()).isEqualTo("ledger");
+    }
+
+    @Test
+    void update_dropsTheLogoKey_whenTheAccountIsRetypedAwayFromCrypto() {
+        // The picker offers no "none", and an omitted key is kept -- so without this the
+        // blockchain mark would follow a wallet retyped to CHECKING forever, with no way back.
+        Account account = Account.builder().id(1L).name("BITCOIN Wallet").type(AccountType.CRYPTO)
+            .currency("EUR").logoKey("ledger").build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, new AccountRequest("Livret", AccountType.SAVINGS, "BTC", "EUR",
+            null, false, "#f59e0b", null, null, null), 7L);
+
+        assertThat(account.getLogoKey()).isNull();
+    }
+
+    @Test
+    void update_ignoresALogoKeyOnACryptoAccountThatCarriesNone() {
+        // CRYPTO covers exchange accounts too, and those already have a brand mark keyed on
+        // provider -- a key sent by hand would win over it and show a Ledger on a Meria
+        // account. Only an account WalletSyncService already seeded gets to swap its mark.
+        Account exchange = Account.builder().id(1L).name("Meria").type(AccountType.CRYPTO)
+            .provider("MERIA").currency("EUR").build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(exchange));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, new AccountRequest("Meria", AccountType.CRYPTO, "MERIA", "EUR",
+            null, false, "#f59e0b", null, "ledger", null), 7L);
+
+        assertThat(exchange.getLogoKey()).isNull();
+    }
+
+    @Test
+    void create_ignoresALogoKeyOnANonCryptoAccount() {
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountResponse created = accountService.create(
+            new AccountRequest("Livret", AccountType.SAVINGS, null, "EUR",
+                null, true, "#f59e0b", null, "ledger", null),
+            FamilyMember.builder().id(7L).build());
+
+        assertThat(created.logoKey()).isNull();
+    }
+
+    @Test
+    void create_ignoresALogoKeyOnACryptoAccountToo() {
+        // A key is never introduced by a request: only WalletSyncService seeds one, and it
+        // builds the wallet's row itself rather than going through create().
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountResponse created = accountService.create(
+            new AccountRequest("BITCOIN Wallet", AccountType.CRYPTO, "BTC", "EUR",
+                null, false, "#f59e0b", null, "ledger", null),
+            FamilyMember.builder().id(7L).build());
+
+        assertThat(created.logoKey()).isNull();
+    }
+
+    // --- Bank logo on a manual account -------------------------------------------------
+
+    @Test
+    void create_resolvesTheBankLogoOfAManualAccountFromTheInstitutionThePickerSent() {
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(bankLogoResolver.logoUrlOrNull("FR", "Crédit Agricole::FR::personal", "Crédit Agricole"))
+            .thenReturn("https://cdn.example/ca.png");
+
+        AccountResponse created = accountService.create(
+            bankRequest("Crédit Agricole", "Crédit Agricole::FR::personal", true),
+            FamilyMember.builder().id(7L).build());
+
+        assertThat(created.logoUrl()).isEqualTo("https://cdn.example/ca.png");
+    }
+
+    @Test
+    void create_searchesTheDefaultCountryWhenNoInstitutionWasPicked() {
+        // A hand-typed bank name, or the MCP tools. An unfiltered search would pull the whole
+        // multi-country catalog on a path that runs on every account write.
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.create(bankRequest("Crédit Agricole", null, true),
+            FamilyMember.builder().id(7L).build());
+
+        verify(bankLogoResolver).logoUrlOrNull("FR", null, "Crédit Agricole");
+    }
+
+    @Test
+    void create_doesNotLookUpALogoForASyncedAccount() {
+        // A connector owns its accounts' logos -- Enable Banking copies one off the requisition,
+        // and a named provider (Trade Republic, BoursoBank) resolves a bundled asset client-side.
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AccountResponse created = accountService.create(
+            bankRequest("Trade Republic", null, false),
+            FamilyMember.builder().id(7L).build());
+
+        assertThat(created.logoUrl()).isNull();
+        verify(bankLogoResolver, never()).logoUrlOrNull(any(), any(), any());
+    }
+
+    @Test
+    void update_reResolvesTheLogoWhenTheBankChanges() {
+        Account account = manualBankAccount("Crédit Agricole", "https://cdn.example/ca.png");
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(bankLogoResolver.logoUrlOrNull("FR", "BNP Paribas::FR::personal", "BNP Paribas"))
+            .thenReturn("https://cdn.example/bnp.png");
+
+        accountService.update(1L, bankRequest("BNP Paribas", "BNP Paribas::FR::personal", true), 7L);
+
+        assertThat(account.getLogoUrl()).isEqualTo("https://cdn.example/bnp.png");
+    }
+
+    @Test
+    void update_keepsTheLogoAndSkipsTheLookupWhenTheBankIsUnchanged() {
+        // Renaming an account or correcting its balance must not cost a catalog round-trip.
+        Account account = manualBankAccount("Crédit Agricole", "https://cdn.example/ca.png");
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, bankRequest("Crédit Agricole", null, true), 7L);
+
+        assertThat(account.getLogoUrl()).isEqualTo("https://cdn.example/ca.png");
+        verify(bankLogoResolver, never()).logoUrlOrNull(any(), any(), any());
+    }
+
+    @Test
+    void update_looksTheLogoUpAgainForAnAccountThatNeverGotOne() {
+        // The account predates the picker: its bank was typed by hand and matched nothing at the
+        // time. Opening the form and saving is what gives it a second chance.
+        Account account = manualBankAccount("Crédit Agricole", null);
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(bankLogoResolver.logoUrlOrNull("FR", "Crédit Agricole::FR::personal", "Crédit Agricole"))
+            .thenReturn("https://cdn.example/ca.png");
+
+        accountService.update(1L, bankRequest("Crédit Agricole", "Crédit Agricole::FR::personal", true), 7L);
+
+        assertThat(account.getLogoUrl()).isEqualTo("https://cdn.example/ca.png");
+    }
+
+    @Test
+    void update_clearsTheLogoWhenTheBankIsCleared() {
+        Account account = manualBankAccount("Crédit Agricole", "https://cdn.example/ca.png");
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(account));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, bankRequest(null, null, true), 7L);
+
+        assertThat(account.getLogoUrl()).isNull();
+    }
+
+    @Test
+    void update_neverTouchesTheLogoOfASyncedAccount() {
+        // Enable Banking wrote this one from its requisition; a free-text provider edit -- or an
+        // MCP client that blanks provider outright -- must not be able to drop it.
+        Account synced = Account.builder().id(1L).name("BoursoBank").type(AccountType.CHECKING)
+            .currency("EUR").provider("BoursoBank").logoUrl("https://cdn.example/bourso.png")
+            .isManual(false).build();
+        when(accountRepository.findByIdAndMemberId(1L, 7L)).thenReturn(Optional.of(synced));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        accountService.update(1L, bankRequest(null, null, false), 7L);
+
+        assertThat(synced.getLogoUrl()).isEqualTo("https://cdn.example/bourso.png");
+        verify(bankLogoResolver, never()).logoUrlOrNull(any(), any(), any());
+    }
+
+    private static AccountRequest bankRequest(String provider, String institutionId, boolean isManual) {
+        return new AccountRequest("Compte", AccountType.CHECKING, provider, "EUR",
+            null, isManual, "#6366f1", null, null, institutionId);
+    }
+
+    private static Account manualBankAccount(String provider, String logoUrl) {
+        return Account.builder().id(1L).name("Compte").type(AccountType.CHECKING)
+            .currency("EUR").provider(provider).logoUrl(logoUrl).isManual(true).build();
+    }
+
+    private static AccountRequest logoRequest(String logoKey) {
+        return new AccountRequest("BITCOIN Wallet", AccountType.CRYPTO, "BTC", "EUR",
+            null, false, "#f59e0b", null, logoKey, null);
     }
 
     @Test
@@ -402,6 +621,25 @@ class AccountServiceTest {
         assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("1234.56");
     }
 
+    /**
+     * BoursoBank's trading board exposes only its own instrument symbol, so a
+     * line whose ISIN never resolved is unpriceable by construction. Without the
+     * provider-valued fallback the PEA reads as its cash sleeve alone.
+     */
+    @Test
+    void liveBalanceEur_boursoBank_usesTheProviderTotalWhenALineKeptItsBoursoSymbol() {
+        Account account = Account.builder().id(5L).name("PEA DOE")
+            .type(AccountType.PEA).provider("BoursoBank")
+            .currency("EUR").currentBalance(new BigDecimal("143088.89")).build();
+        AccountHolding holding = AccountHolding.builder()
+            .ticker("1rTCW8").quantity(new BigDecimal("1000"))
+            .providerValueEur(new BigDecimal("140000.00")).build();
+        when(holdingRepository.findByAccount_Id(5L)).thenReturn(List.of(holding));
+        stubQuotes("1RTCW8", null);
+
+        assertThat(accountService.liveBalanceEur(account)).isEqualByComparingTo("143088.89");
+    }
+
     @Test
     void calculateInvestedAmount_includesCashAndPrefersBrokerEurCostBasis() {
         Account account = Account.builder().id(3L)
@@ -625,5 +863,62 @@ class AccountServiceTest {
         BigDecimal result = accountService.signedLiveBalanceEur(cash);
 
         assertThat(result).isEqualByComparingTo("2500");
+    }
+
+    /**
+     * A property carries no holdings, so its balance comes straight back out of
+     * {@code priceService.toEur}; nothing here exercises pricing.
+     */
+    private Account propertyAccount() {
+        return Account.builder()
+            .id(8L)
+            .name("Résidence principale")
+            .type(AccountType.REAL_ESTATE)
+            .currency("EUR")
+            .currentBalance(new BigDecimal("412000"))
+            .build();
+    }
+
+    private RealEstateMetadataResponse propertyResponse(String propertyType, LocalDate lastValuedAt) {
+        when(priceService.toEur(any(), eq("EUR"), any())).thenReturn(new BigDecimal("412000"));
+        when(realEstateMetadataRepository.findByAccountId(8L)).thenReturn(Optional.of(
+            RealEstateMetadata.builder()
+                .purchasePrice(new BigDecimal("320000"))
+                .propertyType(propertyType)
+                .city("Bordeaux")
+                .build()));
+        when(propertyValuationRepository.findFirstByAccountIdOrderByValuedAtDesc(8L)).thenReturn(
+            lastValuedAt == null
+                ? Optional.empty()
+                : Optional.of(PropertyValuation.builder().valuedAt(lastValuedAt).build()));
+
+        return accountService.toResponse(propertyAccount()).realEstate();
+    }
+
+    @Test
+    void toResponse_normalizesTheFreeTextPropertyTypeIntoAKind() {
+        // property_type predates PropertyKind and is free text, so an old row may hold a French
+        // label. Clients pick the card's glyph off the parsed value, never the raw string.
+        RealEstateMetadataResponse realEstate = propertyResponse("maison", LocalDate.of(2026, 1, 10));
+
+        assertThat(realEstate.propertyType()).isEqualTo("maison");
+        assertThat(realEstate.propertyKind()).isEqualTo(PropertyKind.HOUSE);
+    }
+
+    @Test
+    void toResponse_reportsWhenThePropertyWasLastValued() {
+        RealEstateMetadataResponse realEstate = propertyResponse("HOUSE", LocalDate.of(2026, 1, 10));
+
+        assertThat(realEstate.lastValuedAt()).isEqualTo(LocalDate.of(2026, 1, 10));
+    }
+
+    @Test
+    void toResponse_leavesBothNullOnAPropertyNeitherDescribedNorValued() {
+        // A property has no lastSyncedAt to fall back on -- the card simply renders no
+        // freshness line, exactly as a manual account with no provider does.
+        RealEstateMetadataResponse realEstate = propertyResponse("chalet", null);
+
+        assertThat(realEstate.propertyKind()).isNull();
+        assertThat(realEstate.lastValuedAt()).isNull();
     }
 }

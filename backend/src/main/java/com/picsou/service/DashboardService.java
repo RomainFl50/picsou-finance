@@ -38,6 +38,7 @@ public class DashboardService {
     private final DebtRepository debtRepository;
     private final LoanAmortizationService loanAmortizationService;
     private final AccountService accountService;
+    private final AccountAccessResolver accessResolver;
 
     public DashboardService(
         AccountRepository accountRepository,
@@ -48,7 +49,8 @@ public class DashboardService {
         HistoryService historyService,
         DebtRepository debtRepository,
         LoanAmortizationService loanAmortizationService,
-        AccountService accountService
+        AccountService accountService,
+        AccountAccessResolver accessResolver
     ) {
         this.accountRepository = accountRepository;
         this.goalService = goalService;
@@ -59,10 +61,16 @@ public class DashboardService {
         this.debtRepository = debtRepository;
         this.loanAmortizationService = loanAmortizationService;
         this.accountService = accountService;
+        this.accessResolver = accessResolver;
     }
 
     public DashboardResponse getDashboard(Long memberId, String range) {
-        List<Account> accounts = accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(memberId);
+        // Owned accounts plus any the member co-owns; each contributes only their share.
+        // Hidden accounts are excluded, matching every other user-facing account list.
+        List<Account> accounts = accessResolver.readableAccounts(memberId).stream()
+            .filter(a -> !a.isHidden())
+            .toList();
+        Map<Long, BigDecimal> shares = accessResolver.sharesFor(accounts, memberId);
 
         // Pre-load all holdings and group by account
         Map<Long, List<AccountHolding>> holdingsByAccount = new HashMap<>();
@@ -105,6 +113,14 @@ public class DashboardService {
                 accountValue = valuation.liveEur();
                 accountInvested = valuation.investedEur();
             }
+
+            // Apply the member's share once, here: accountValues feeds both the hero totals
+            // and buildDistribution, so weighting in one place keeps the pie consistent with
+            // the headline figure. Accounts with no split resolve to 100% and are untouched.
+            BigDecimal share = shares.get(account.getId());
+            accountValue = AccountAccessResolver.weigh(accountValue, share);
+            accountInvested = AccountAccessResolver.weigh(accountInvested, share);
+
             accountValues.put(account.getId(), accountValue);
 
             if (account.getType() == AccountType.LOAN) {

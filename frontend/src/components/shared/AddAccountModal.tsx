@@ -14,13 +14,16 @@ import { Label } from '@/components/ui/label'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { AccountForm } from '@/components/shared/AccountForm'
+import { AddPropertyModal } from '@/components/property/AddPropertyModal'
 import { BankCountrySelect, DEFAULT_BANK_COUNTRY } from '@/components/shared/BankCountrySelect'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { BourseDirectPanel } from '@/components/sync/BourseDirectPanel'
+import { BoursoPanel } from '@/components/sync/BoursoPanel'
 import { DegiroPanel } from '@/components/sync/DegiroPanel'
 import { AmundiPanel } from '@/components/sync/AmundiPanel'
 import {
   ACCOUNT_COLORS,
+  ACCOUNT_TYPES,
   EXCHANGE_API_KEY_MAX_LENGTH,
   EXCHANGE_API_SECRET_MAX_LENGTH,
   TR_VERIFICATION_CODE_LENGTH,
@@ -51,6 +54,7 @@ import { RevolutSelectionCard } from '@/components/sync/RevolutSelectionCard'
 import { revolutPhaseLabel } from '@/features/sync/revolut-phase'
 import {
   Landmark,
+  HousePlus,
   ArrowLeftRight,
   Wallet,
   Smartphone,
@@ -88,8 +92,8 @@ interface AddAccountModalProps {
 }
 
 type WizardStep =
-  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourseDirect'
-  | 'degiro' | 'amundi' | 'finary' | 'manual'
+  | 'selector' | 'banks' | 'exchanges' | 'wallets' | 'tr' | 'revolut' | 'bourso'
+  | 'bourseDirect' | 'degiro' | 'amundi' | 'finary' | 'property' | 'manual'
 
 /**
  * Masked variant of InputOTPSlot — replaces the typed character with a bullet
@@ -127,10 +131,12 @@ const SOURCES: { key: WizardStep; icon: typeof Landmark; labelKey: string; descK
   { key: 'wallets', icon: Wallet, labelKey: 'sync.wallets.title', descKey: 'addAccount.desc.wallets' },
   { key: 'tr', icon: Smartphone, labelKey: 'sync.tr.title', descKey: 'addAccount.desc.tr' },
   { key: 'revolut', icon: CreditCard, labelKey: 'sync.revolut.title', descKey: 'addAccount.desc.revolut' },
+  { key: 'bourso', icon: Landmark, labelKey: 'sync.bourso.title', descKey: 'addAccount.desc.bourso' },
   { key: 'bourseDirect', icon: BriefcaseBusiness, labelKey: 'sync.bourseDirect.title', descKey: 'addAccount.desc.bourseDirect' },
   { key: 'degiro', icon: TrendingUp, labelKey: 'sync.degiro.title', descKey: 'addAccount.desc.degiro' },
   { key: 'amundi', icon: PiggyBank, labelKey: 'sync.amundi.title', descKey: 'addAccount.desc.amundi' },
   { key: 'finary', icon: FileSpreadsheet, labelKey: 'sync.finary.title', descKey: 'addAccount.desc.finary' },
+  { key: 'property', icon: HousePlus, labelKey: 'property.add.source', descKey: 'addAccount.desc.property' },
   { key: 'manual', icon: PenLine, labelKey: 'addAccount.manual', descKey: 'addAccount.desc.manual' },
 ]
 
@@ -144,11 +150,19 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
   const updateDebt = useUpdateDebtMetadata()
   const [step, setStep] = useState<WizardStep>('selector')
   const [showManualForm, setShowManualForm] = useState(false)
+  const [showPropertyForm, setShowPropertyForm] = useState(false)
 
   function handleSourceClick(key: string) {
     if (key === 'manual') {
       onOpenChange(false)
       setShowManualForm(true)
+      return
+    }
+    if (key === 'property') {
+      // Its own guided flow rather than a step here: it creates the account, saves the
+      // description and runs the first estimate in one pass.
+      onOpenChange(false)
+      setShowPropertyForm(true)
       return
     }
     setStep(key as WizardStep)
@@ -175,6 +189,7 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
     isManual: boolean
     color: string
     ticker?: string
+    institutionId?: string
     borrowedAmount?: number
     interestRatePct?: number
     monthlyPayment?: number
@@ -192,6 +207,8 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
       isManual: true,
       color: data.color,
       ticker: data.ticker || undefined,
+      // Set only when a bank was picked from the catalog; the backend resolves its logo from it.
+      institutionId: data.institutionId,
     }
     const created = await createAccount.mutateAsync(request)
 
@@ -254,6 +271,12 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
               {step === 'wallets' && <WalletWizard onDone={handleDone} onBack={() => setStep('selector')} />}
               {step === 'tr' && <TradeRepublicWizard onDone={handleDone} onBack={() => setStep('selector')} />}
               {step === 'revolut' && <RevolutWizard onDone={handleDone} onBack={() => setStep('selector')} />}
+              {step === 'bourso' && (
+                <>
+                  <BackButton onClick={() => setStep('selector')} />
+                  <BoursoPanel onConnected={handleDone} />
+                </>
+              )}
               {step === 'bourseDirect' && (
                 <>
                   <BackButton onClick={() => setStep('selector')} />
@@ -276,6 +299,10 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
             </>
         </DialogContent>
       </Dialog>
+
+      {showPropertyForm && (
+        <AddPropertyModal open onOpenChange={setShowPropertyForm} />
+      )}
 
       <AccountForm
         open={showManualForm}
@@ -1432,8 +1459,11 @@ function FinaryWizard({ onDone, onBack }: { onDone: () => void; onBack: () => vo
                         value={mappings[index].newAccount!.type}
                         onChange={(e) => updateNewAccountField(index, 'type', e.target.value)}
                       >
-                        {(['CHECKING', 'SAVINGS', 'LEP', 'PEA', 'COMPTE_TITRES', 'CRYPTO', 'REAL_ESTATE', 'LOAN', 'OTHER'] as const).map((type) => (
-                          <option key={type} value={type}>{t(`accountTypes.${type === 'COMPTE_TITRES' ? 'compteTitres' : type === 'REAL_ESTATE' ? 'realEstate' : type.toLowerCase()}`)}</option>
+                        {/* The shared list, not a local copy: deriving a label key from the
+                            type name only held while every key was the lowercased value, and
+                            broke the moment a type needed its own (livretA, employeeSavings). */}
+                        {ACCOUNT_TYPES.map((at) => (
+                          <option key={at.value} value={at.value}>{t(at.labelKey)}</option>
                         ))}
                       </select>
                     </div>

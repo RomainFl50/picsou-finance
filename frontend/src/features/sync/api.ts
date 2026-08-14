@@ -22,6 +22,7 @@ import type {
   DegiroAuthInitResponse,
   AmundiSessionStatus,
   AmundiAuthInitResponse,
+  IbkrConnectionStatus,
 } from '@/types/api'
 
 // --- Bank Sync (Enable Banking) ---
@@ -39,8 +40,10 @@ export const bankSyncApi = {
       .post<{ requisitionId: string; authLink: string }>('/sync/initiate', { institutionId, institutionName })
       .then(r => r.data),
 
-  complete: (code: string) =>
-    api.post<Account[]>('/sync/complete', { code }).then(r => r.data),
+  complete: (code: string, state?: string | null) =>
+    api
+      .get<Account[]>('/sync/complete', { params: { code, state: state ?? undefined } })
+      .then(r => r.data),
 
   getStatus: () =>
     api
@@ -61,7 +64,7 @@ export const bankSyncApi = {
     api.post<Account[]>(`/sync/${id}/retry`).then(r => r.data),
 
   reconnect: (id: number) =>
-    api.post<{ authLink: string }>(`/sync/${id}/reconnect`).then(r => r.data),
+    api.post<{ requisitionId: string; authLink: string }>(`/sync/${id}/reconnect`).then(r => r.data),
 
   deleteConnection: (id: number) =>
     api.delete(`/sync/${id}`),
@@ -100,7 +103,7 @@ export const trApi = {
   },
 
   clearSession: () =>
-    api.post('/tr/logout'),
+    api.delete('/tr/session'),
 }
 
 // --- Crypto Exchanges ---
@@ -153,16 +156,20 @@ export const boursoApi = {
       .post<BoursoAuthInitResponse>('/bourso/auth/initiate', { customerId, password })
       .then(r => r.data),
 
-  completeAuth: (processId: string, code: string) =>
+  // No code: the user approves the push in the BoursoBank app, and the request
+  // stays open until they do.
+  completeAuth: (processId: string) =>
     api
-      .post<BoursoSessionStatus>('/bourso/auth/complete', { processId, code })
+      .post<BoursoSessionStatus>('/bourso/auth/complete', { processId })
       .then(r => r.data),
 
   sync: () =>
-    api.post<Account[]>('/bourso/sync').then(r => r.data),
+    api.post<BoursoSessionStatus>('/bourso/sync').then(r => r.data),
 
   getStatus: () =>
-    api.get<BoursoSessionStatus>('/bourso/status').then(r => r.data),
+    api
+      .get<BoursoSessionStatus>('/bourso/status', { skipGlobalErrorRedirect: true })
+      .then(r => r.data),
 
   clearSession: () =>
     api.delete('/bourso/session'),
@@ -260,6 +267,17 @@ export const amundiApi = {
       .then(r => r.data),
 
   clearSession: () => api.delete('/amundi/session'),
+}
+
+export const ibkrApi = {
+  getStatus: () => api.get<IbkrConnectionStatus>('/ibkr/status').then(r => r.data),
+
+  connect: (token: string, queryId: string) =>
+    api.post('/ibkr/connect', { token, queryId }).then(r => r.data),
+
+  sync: () => api.post<Account[]>('/ibkr/sync').then(r => r.data),
+
+  disconnect: () => api.delete('/ibkr/connection').then(r => r.data),
 }
 
 // --- Finary ---

@@ -110,7 +110,7 @@ handlers.set(key('GET', '/dashboard'), () => mockDashboard)
 
 // Accounts
 handlers.set(key('GET', '/accounts'), () => _demoAccounts)
-for (let i = 1; i <= 7; i++) {
+for (let i = 1; i <= mockAccounts.length; i++) {
   handlers.set(key('GET', `/accounts/${i}`), () => mockAccounts[i - 1])
 }
 
@@ -387,6 +387,168 @@ handlers.set(key('GET', '/accounts/7/history'), () => generateHistory(
 handlers.set(key('GET', '/accounts/8/history'), () => generateHistory(
   [3000, 3050, 3100, 3200, 3150, 3100, 3200, 3300, 3250, 3200, 3240, 3240.5]))
 
+// Property: slow appreciation, revalued monthly rather than daily.
+handlers.set(key('GET', '/accounts/8/history'), () => generateHistory(
+  [392000, 393500, 395000, 397000, 399500, 401000, 403000, 405500, 407000, 409000, 410500, 412000]))
+
+// ─── Real estate ─────────────────────────────────────────────────────────────
+// Every route the property UI touches needs a handler: the demo adapter answers `{}` for
+// anything unmatched, and the pages would then read fields off an empty object.
+
+const demoProperty = mockAccounts.find((a) => a.id === 8)!
+
+handlers.set(key('GET', '/real-estate/summary'), () => ({
+  grossValue: 412000,
+  outstandingDebt: 168400,
+  netValue: 243600,
+  costBasis: 368800,
+  unrealizedGain: 43200,
+  unrealizedGainPercent: 11.71,
+  loanToValue: 40.87,
+  monthlyRentalIncome: 0,
+  properties: [{
+    accountId: 8,
+    name: demoProperty.name,
+    color: demoProperty.color,
+    propertyType: 'HOUSE',
+    category: 'PRIMARY_RESIDENCE',
+    city: 'Bordeaux',
+    sharePercent: 100,
+    grossValue: 412000,
+    outstandingDebt: 168400,
+    netValue: 243600,
+    costBasis: 368800,
+    unrealizedGain: 43200,
+    surfaceArea: 95,
+    rentalIncome: 0,
+    valuationMode: 'ESTIMATED',
+    lastValuedAt: '2026-07-01',
+    lastConfidence: 'HIGH',
+    loans: [{
+      accountId: 4,
+      name: 'Prêt immobilier',
+      lenderName: 'BNP Paribas',
+      outstandingBalance: 168400,
+      sharePercent: 100,
+      monthlyPayment: 1120,
+      endDate: '2043-06-01',
+    }],
+  }],
+}))
+
+handlers.set(key('GET', '/real-estate/8/valuations'), () => {
+  const points = [395000, 398000, 401500, 404000, 407500, 409000, 412000]
+  return points.map((value, i) => ({
+    valuedAt: `2026-0${i + 1}-01`,
+    estimatedValue: value,
+    lowValue: Math.round(value * 0.88),
+    highValue: Math.round(value * 1.14),
+    pricePerSqm: Math.round(value / 95),
+    provider: 'CEREMA_DV3F',
+    confidence: 'HIGH',
+    sampleSize: 1048,
+    sourceYear: 2025,
+  })).reverse()
+})
+
+handlers.set(key('POST', '/accounts/8/valuation/refresh'), () => ({
+  status: 'OK',
+  mode: 'ESTIMATED',
+  appliedToBalance: true,
+  estimatedValue: 412000,
+  lowValue: 362560,
+  highValue: 469680,
+  pricePerSqm: 4336,
+  sampleSize: 1048,
+  confidence: 'HIGH',
+  sourceYear: 2025,
+  provider: 'CEREMA_DV3F',
+  scale: 'communes',
+  valuedAt: '2026-08-01',
+  reindexRatio: 1.021,
+  adjustments: [
+    { code: 'GARDEN', factor: 0.02, sqm: null, amount: 8080 },
+    { code: 'TERRACE', factor: 0.03, sqm: null, amount: 12120 },
+    { code: 'GARAGE', factor: null, sqm: 12, amount: 52032 },
+  ],
+}))
+
+handlers.set(key('GET', '/accounts/8/ownership'), () => ({
+  shares: [{ memberId: 1, displayName: 'Demo', avatarColor: '#6366f1', sharePercent: 100, isOwner: true }],
+  totalAssigned: 100,
+  unassigned: 0,
+}))
+handlers.set(key('PUT', '/accounts/8/ownership'), (config) => {
+  const body = JSON.parse(config.data || '{}')
+  const shares = (body.shares ?? []) as { memberId: number; sharePercent: number }[]
+  const total = shares.reduce((sum, s) => sum + s.sharePercent, 0)
+  return {
+    shares: shares.map((s) => ({
+      memberId: s.memberId,
+      displayName: 'Demo',
+      avatarColor: '#6366f1',
+      sharePercent: s.sharePercent,
+      isOwner: s.memberId === 1,
+    })),
+    totalAssigned: total,
+    unassigned: 100 - total,
+  }
+})
+
+// Address autocomplete. Returns a fixed match so the field behaves without reaching IGN.
+handlers.set(key('GET', '/geocode'), () => ([
+  {
+    label: '12 Rue de la République 33000 Bordeaux',
+    score: 0.94,
+    postcode: '33000',
+    city: 'Bordeaux',
+    inseeCode: '33063',
+    latitude: 44.8378,
+    longitude: -0.5792,
+  },
+]))
+
+// Aggregate net-worth history (dashboard chart, accounts page with split=true).
+// Mirrors backend NetWorthPoint: { date, total, invested, pnl, accounts? }.
+function generateNetWorthHistory(months: number, accountIds: number[], split: boolean) {
+  const now = new Date()
+  const weights = accountIds.map((id) => mockAccounts.find((a) => a.id === id)?.currentBalanceEur ?? 1000)
+  const weightSum = weights.reduce((s, w) => s + w, 0) || 1
+
+  return Array.from({ length: months }, (_, i) => {
+    // Build in UTC: a local-midnight Date run through toISOString() shifts to
+    // the previous day in any timezone ahead of UTC.
+    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() - (months - 1 - i), 1))
+    const progress = months > 1 ? i / (months - 1) : 1
+    const total = Math.round((58_000 + progress * 14_000 + Math.sin(i * 1.7) * 1_200) * 100) / 100
+    const invested = Math.round(total * 0.55 * 100) / 100
+    const pnl = Math.round((total * 0.06 + progress * 1_500) * 100) / 100
+    const point: {
+      date: string; total: number; invested: number; pnl: number
+      accounts?: Record<string, { total: number; invested: number; pnl: number }>
+    } = { date: d.toISOString().split('T')[0], total, invested, pnl }
+    if (split) {
+      point.accounts = Object.fromEntries(accountIds.map((id, idx) => {
+        const share = weights[idx] / weightSum
+        return [String(id), {
+          total: Math.round(total * share * 100) / 100,
+          invested: Math.round(invested * share * 100) / 100,
+          pnl: Math.round(pnl * share * 100) / 100,
+        }]
+      }))
+    }
+    return point
+  })
+}
+
+handlers.set(key('GET', '/history'), (config) => {
+  const params = (config.params ?? {}) as { accountIds?: string; months?: number | string; split?: boolean | string }
+  const months = Number(params.months) || 12
+  const ids = String(params.accountIds ?? '').split(',').filter(Boolean).map(Number)
+  const split = params.split === true || params.split === 'true'
+  return generateNetWorthHistory(months, ids.length ? ids : mockAccounts.map((a) => a.id), split)
+})
+
 // Pocket "Vacances" (id=9): inflows-only
 handlers.set(key('GET', '/accounts/9/history'), () => generateHistory(
   [0, 0, 100, 300, 500, 600, 666, 774, 774, 774, 774, 774]))
@@ -542,13 +704,19 @@ handlers.set(key('POST', '/sync/initiate'), () => ({
   authLink: 'https://demo.enablebanking.com/auth?demo=true',
 }))
 
-// Sync - complete
-handlers.set(key('POST', '/sync/complete'), () => ([
+// Sync - complete (real backend: GET /api/sync/complete?code=...&state=...)
+handlers.set(key('GET', '/sync/complete'), () => ([
   { id: 100, name: 'Demo Bank Account', type: 'CHECKING' as const, provider: 'Demo Bank', currency: 'EUR', currentBalance: 5000, currentBalanceEur: 5000, lastSyncedAt: new Date().toISOString(), isManual: false, color: '#3b82f6', ticker: null, createdAt: new Date().toISOString() }
 ]))
 
 // Sync - retry
 handlers.set(key('POST', '/sync/1/retry'), () => [])
+
+// Sync - reconnect (re-initiate OAuth for a dead requisition)
+handlers.set(key('POST', '/sync/1/reconnect'), () => ({
+  requisitionId: 'demo-req-reconnect',
+  authLink: 'https://demo.enablebanking.com/auth?demo=true',
+}))
 
 // Sync - delete
 handlers.set(key('DELETE', '/sync/1'), () => null)
@@ -582,6 +750,24 @@ handlers.set(key('POST', '/amundi/auth/complete'), () => demoAmundiStatus)
 handlers.set(key('POST', '/amundi/sync'), () => demoAmundiStatus)
 handlers.set(key('DELETE', '/amundi/session'), () => null)
 
+// BoursoBank — same convention. Its demo accounts already carry
+// `provider: 'BoursoBank'`, so without these the Sync-all modal would list a
+// connection whose status request falls through to `{}`.
+const demoBoursoStatus = {
+  isActive: false,
+  syncStatus: 'IDLE',
+  lastSyncStartedAt: null,
+  lastSyncCompletedAt: null,
+  lastSyncError: null,
+}
+handlers.set(key('GET', '/bourso/status'), () => demoBoursoStatus)
+handlers.set(key('POST', '/bourso/auth/initiate'), () => ({
+  processId: null, mfaRequired: false, mfaType: null,
+}))
+handlers.set(key('POST', '/bourso/auth/complete'), () => demoBoursoStatus)
+handlers.set(key('POST', '/bourso/sync'), () => demoBoursoStatus)
+handlers.set(key('DELETE', '/bourso/session'), () => null)
+
 // Trade Republic - session status
 handlers.set(key('GET', '/tr/status'), () => ({ isActive: false, expiresAt: null }))
 
@@ -597,8 +783,8 @@ handlers.set(key('POST', '/tr/sync'), () => [])
 // Trade Republic - import CSV
 handlers.set(key('POST', '/tr/import'), () => [])
 
-// Trade Republic - logout
-handlers.set(key('POST', '/tr/logout'), () => null)
+// Trade Republic - clear session (real backend: DELETE /api/tr/session)
+handlers.set(key('DELETE', '/tr/session'), () => null)
 
 // Crypto exchange - add. Echoes the chosen exchange rather than hardcoding one, so the demo
 // reflects whichever exchange the user picked.
@@ -606,7 +792,7 @@ handlers.set(key('POST', '/crypto/exchange'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const provider = body.type ?? 'BINANCE'
   return {
-    id: Date.now(), name: provider, type: 'CRYPTO' as const, provider, currency: 'EUR', currentBalance: 0, currentBalanceEur: 0, lastSyncedAt: null, isManual: false, color: '#f59e0b', ticker: null, logoUrl: null, createdAt: new Date().toISOString()
+    id: Date.now(), name: provider, type: 'CRYPTO' as const, provider, currency: 'EUR', currentBalance: 0, currentBalanceEur: 0, lastSyncedAt: null, isManual: false, color: '#f59e0b', ticker: null, logoUrl: null, logoKey: null, createdAt: new Date().toISOString()
   }
 })
 
@@ -999,6 +1185,14 @@ export function createDemoAdapter() {
   return (config: InternalAxiosRequestConfig): Promise<AxiosResponse> => {
     const k = key(config.method || 'GET', config.url || '')
     const handler = handlers.get(k)
+
+    if (!handler) {
+      // Deliberately still resolves 200 {} — several demo screens lean on the
+      // permissive fallback. The warning is what keeps frontend/backend
+      // endpoint drift visible: a mismatched method/path (e.g. the old
+      // POST /tr/logout) used to "succeed" here while 404ing in production.
+      console.warn(`[demo] no handler registered for "${k}" — returning empty 200`)
+    }
 
     return new Promise((resolve) => {
       setTimeout(() => {

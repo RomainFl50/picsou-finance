@@ -11,6 +11,7 @@ import { DistributionPie } from '@/components/shared/DistributionPie'
 import { LoadingSkeleton } from '@/components/shared/LoadingSkeleton'
 import { HoldingsCard } from '@/components/shared/HoldingsCard'
 import { LiabilitiesCard } from '@/components/shared/LiabilitiesCard'
+import { RealEstateSummaryCard } from '@/components/property/RealEstateSummaryCard'
 import { SyncAllModal } from '@/components/sync/SyncAllModal'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import {
@@ -262,6 +263,10 @@ export function DashboardPage() {
 
         <DistributionPie data={data.distribution} />
       </div>
+
+      {/* Property wealth: gross, mortgage debt and the equity between them. Renders nothing
+          when the member owns no property. */}
+      <RealEstateSummaryCard />
 
       {/* Goals section */}
       <Card>

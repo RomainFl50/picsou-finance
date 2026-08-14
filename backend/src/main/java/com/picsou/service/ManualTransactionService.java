@@ -17,7 +17,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -30,9 +29,6 @@ public class ManualTransactionService {
     private final CategoryRepository categoryRepository;
     private final CategorizationService categorizationService;
     private final InstrumentFieldResolver instrumentFieldResolver;
-
-    private static final Set<AccountType> INVESTMENT_TYPES =
-        Set.of(AccountType.PEA, AccountType.COMPTE_TITRES, AccountType.CRYPTO);
 
     @Transactional
     public TransactionResponse addTransaction(Long accountId, Long memberId, TransactionRequest req) {
@@ -128,7 +124,7 @@ public class ManualTransactionService {
      * provider-written snapshots.
      */
     private void recomputeDerivedState(Account account) {
-        if (INVESTMENT_TYPES.contains(account.getType())) {
+        if (account.getType().isInvestment()) {
             holdingComputeService.recomputeHoldings(account);
         } else {
             refreshManualCashBalance(account);

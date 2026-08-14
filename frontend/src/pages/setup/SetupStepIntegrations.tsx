@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import type { ComponentType } from 'react'
 import {
+  Boxes,
   Landmark,
   LineChart,
   BriefcaseBusiness,
@@ -25,7 +26,7 @@ const CATALOG: Array<{
   route: string
 }> = [
   { key: 'enablebanking', icon: Landmark, route: '/setup/integrations/enablebanking' },
-  // BoursoBank disabled for 1.0.0 — sidecar integration not finished.
+  { key: 'boursobank', icon: Boxes, route: '/setup/integrations/boursobank' },
   { key: 'boursedirect', icon: BriefcaseBusiness, route: '/setup/integrations/boursedirect' },
   { key: 'traderepublic', icon: LineChart, route: '/setup/integrations/traderepublic' },
   { key: 'revolut', icon: CreditCard, route: '/setup/integrations/revolut' },

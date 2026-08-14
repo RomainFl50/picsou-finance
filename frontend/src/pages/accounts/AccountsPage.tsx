@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useAccounts, useAccountTree, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
+import { useAccounts, useAccountTree, useAccountDeletionImpact, useUpdateAccount, useDeleteAccount, useUpdateDebtMetadata } from '@/features/accounts/hooks'
 import { useHistory } from '@/features/history/hooks'
 import { useSavingsSuggestions } from '@/features/savings/hooks'
 import { AccountForm } from '@/components/shared/AccountForm'
 import { AddAccountModal } from '@/components/shared/AddAccountModal'
+import { AddPropertyModal } from '@/components/property/AddPropertyModal'
 import { AccountCard } from '@/components/shared/AccountCard'
 import { AccountsStackedChart } from '@/components/shared/AccountsStackedChart'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -27,7 +28,7 @@ const ASSET_FILTER_MAP: Record<AssetFilter, AccountType[] | null> = {
   ALL: null,
   STOCKS: ['PEA', 'COMPTE_TITRES', 'EMPLOYEE_SAVINGS'],
   METALS: ['OTHER'],
-  SAVINGS: ['LEP', 'SAVINGS'],
+  SAVINGS: ['LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL', 'SAVINGS'],
   CHECKING: ['CHECKING'],
   CRYPTO: ['CRYPTO'],
   REAL_ESTATE: ['REAL_ESTATE'],
@@ -50,6 +51,11 @@ const TYPE_TO_GROUP: Record<AccountType, string> = {
   EMPLOYEE_SAVINGS: 'STOCKS',
   OTHER: 'METALS',
   LEP: 'SAVINGS',
+  LIVRET_A: 'SAVINGS',
+  LDDS: 'SAVINGS',
+  LIVRET_JEUNE: 'SAVINGS',
+  PEL: 'SAVINGS',
+  CEL: 'SAVINGS',
   SAVINGS: 'SAVINGS',
   CHECKING: 'CHECKING',
   CRYPTO: 'CRYPTO',
@@ -68,6 +74,8 @@ type AccountFormData = {
   isManual: boolean
   color: string
   ticker?: string
+  logoKey?: string
+  institutionId?: string
   borrowedAmount?: number
   interestRatePct?: number
   monthlyPayment?: number
@@ -75,6 +83,7 @@ type AccountFormData = {
   fileFees?: number
   startDate?: string
   endDate?: string
+  linkedAccountId?: number
 }
 
 // ─── Inline pocket card (smaller, with "alloué" tooltip) ─────────────────────
@@ -115,6 +124,7 @@ export function AccountsPage() {
   const hasSavingsSuggestions = Array.isArray(savingsSuggestions) && savingsSuggestions.length > 0
 
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showPropertyModal, setShowPropertyModal] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
@@ -129,6 +139,10 @@ export function AccountsPage() {
 
   const { nonPocketAccounts, walletGroups: allWalletGroups, standaloneAccounts: allStandaloneAccounts } =
     useAccountTree(accounts)
+
+  // Deleting the last account on a connection removes that connection too, and a bank one
+  // costs a full OAuth re-authorisation to get back -- so the dialog names it first.
+  const { data: deletionImpact } = useAccountDeletionImpact(deleteId)
 
   // All non-pocket IDs for history query (split mode for per-account breakdown)
   const allAccountIds = useMemo(() => nonPocketAccounts.map((a) => a.id), [nonPocketAccounts])
@@ -207,6 +221,7 @@ export function AccountsPage() {
       color: meta.color,
       ticker: null,
       logoUrl: null,
+      logoKey: null,
       createdAt: '',
       hidden: false,
     }))
@@ -257,7 +272,15 @@ export function AccountsPage() {
       })
   }, [historyData, accounts, nonPocketAccounts, filter])
 
+  // With the Immobilier filter on, "add an account" almost certainly means "add a property",
+  // so the primary action goes straight to the guided flow instead of the generic picker.
+  const addingProperty = filter === 'REAL_ESTATE'
+
   function handleOpenCreate() {
+    if (addingProperty) {
+      setShowPropertyModal(true)
+      return
+    }
     setShowCreateModal(true)
   }
 
@@ -282,6 +305,11 @@ export function AccountsPage() {
       isManual: data.isManual,
       color: data.color,
       ticker: data.ticker || undefined,
+      // Empty rather than absent for every account without a logo choice; the backend keeps
+      // whatever it already stores when this is undefined.
+      logoKey: data.logoKey || undefined,
+      // Set only when a bank was picked from the catalog; the backend resolves its logo from it.
+      institutionId: data.institutionId,
     }
     await updateAccount.mutateAsync({ id: editingAccount.id, data: request })
     if (data.type === 'LOAN' && data.borrowedAmount && data.borrowedAmount > 0) {
@@ -296,6 +324,9 @@ export function AccountsPage() {
           lenderName: data.provider || undefined,
           startDate: data.startDate || undefined,
           endDate: data.endDate || undefined,
+          // null, not undefined: an omitted key would leave a previously linked property
+          // attached when the user picks "no linked asset".
+          linkedAccountId: data.linkedAccountId ?? null,
         },
       })
     }
@@ -321,6 +352,7 @@ export function AccountsPage() {
       isManual: editingAccount.isManual,
       color: editingAccount.color,
       ticker: editingAccount.ticker ?? '',
+      logoKey: editingAccount.logoKey ?? '',
       ...(debt
         ? {
             borrowedAmount: debt.borrowedAmount,
@@ -330,6 +362,7 @@ export function AccountsPage() {
             fileFees: debt.fileFees ?? undefined,
             startDate: debt.startDate ?? '',
             endDate: debt.endDate ?? '',
+            linkedAccountId: debt.linkedAccountId ?? undefined,
           }
         : {}),
     }
@@ -346,7 +379,7 @@ export function AccountsPage() {
         actions={
           <Button onClick={handleOpenCreate} size="sm">
             <Plus className="size-4" />
-            {t('accounts.addAccount')}
+            {addingProperty ? t('property.add.action') : t('accounts.addAccount')}
           </Button>
         }
       />
@@ -440,7 +473,10 @@ export function AccountsPage() {
           className="min-h-[calc(100vh-14rem)]"
           icon={<Wallet className="size-12" />}
           title={t('accounts.noAccounts')}
-          action={{ label: t('accounts.addAccount'), onClick: handleOpenCreate }}
+          action={{
+            label: addingProperty ? t('property.add.action') : t('accounts.addAccount'),
+            onClick: handleOpenCreate,
+          }}
         />
       ) : (
         <div className="space-y-4">
@@ -551,6 +587,10 @@ export function AccountsPage() {
         </div>
       )}
 
+      {showPropertyModal && (
+        <AddPropertyModal open onOpenChange={setShowPropertyModal} />
+      )}
+
       <AddAccountModal
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
@@ -561,6 +601,7 @@ export function AccountsPage() {
         onOpenChange={handleEditFormOpenChange}
         onSubmit={handleEditSubmit}
         defaultValues={defaultValues}
+        accounts={accounts}
         title={t('accounts.editAccount')}
         loading={isMutating}
       />
@@ -569,7 +610,11 @@ export function AccountsPage() {
         open={deleteId !== null}
         onOpenChange={(open) => { if (!open) setDeleteId(null) }}
         title={t('accounts.deleteAccount')}
-        description={t('accounts.deleteConfirm')}
+        description={
+          deletionImpact?.removesConnection
+            ? `${t('accounts.deleteConfirm')} ${t('accounts.deleteRemovesConnection', { connection: deletionImpact.connectionLabel })}`
+            : t('accounts.deleteConfirm')
+        }
         onConfirm={handleConfirmDelete}
         loading={deleteAccount.isPending}
         variant="destructive"
