@@ -57,6 +57,7 @@ class AccountServiceTest {
     @Mock SavingsInterestConfigRepository savingsInterestConfigRepository;
     @Mock PriceService priceService;
     @Mock LoanAmortizationService loanAmortizationService;
+    @Mock AccountAccessResolver accessResolver;
     @Mock BankLogoResolver bankLogoResolver;
     @InjectMocks AccountService accountService;
 
@@ -297,29 +298,44 @@ class AccountServiceTest {
 
     @Test
     void findAll_excludesHiddenAccounts_byDefault() {
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L))
-            .thenReturn(List.of(ownedAccount()));
+        Account visible = ownedAccount();
+        Account hidden = Account.builder()
+            .id(2L).name("Hidden One").type(AccountType.CHECKING).currency("EUR").hidden(true)
+            .build();
+        when(accessResolver.readableAccounts(1L)).thenReturn(List.of(visible, hidden));
+        when(accessResolver.sharesFor(any(), eq(1L))).thenAnswer(inv -> {
+            java.util.Collection<Account> accs = inv.getArgument(0);
+            java.util.Map<Long, BigDecimal> shares = new java.util.HashMap<>();
+            for (Account a : accs) shares.put(a.getId(), new BigDecimal("100"));
+            return shares;
+        });
 
         List<com.picsou.dto.AccountResponse> result = accountService.findAll(1L);
 
         assertThat(result).hasSize(1);
-        verify(accountRepository).findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L);
-        verify(accountRepository, never()).findAllByMemberIdOrderByCreatedAtAsc(any());
+        assertThat(result).noneMatch(com.picsou.dto.AccountResponse::hidden);
+        verify(accessResolver).readableAccounts(1L);
     }
 
     @Test
     void findAll_includesHiddenAccounts_whenRequested() {
+        Account visible = ownedAccount();
         Account hidden = Account.builder()
             .id(2L).name("Hidden One").type(AccountType.CHECKING).currency("EUR").hidden(true)
             .build();
-        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L))
-            .thenReturn(List.of(ownedAccount(), hidden));
+        when(accessResolver.readableAccounts(1L)).thenReturn(List.of(visible, hidden));
+        when(accessResolver.sharesFor(any(), eq(1L))).thenAnswer(inv -> {
+            java.util.Collection<Account> accs = inv.getArgument(0);
+            java.util.Map<Long, BigDecimal> shares = new java.util.HashMap<>();
+            for (Account a : accs) shares.put(a.getId(), new BigDecimal("100"));
+            return shares;
+        });
 
         List<com.picsou.dto.AccountResponse> result = accountService.findAll(1L, true);
 
         assertThat(result).hasSize(2);
         assertThat(result).anyMatch(com.picsou.dto.AccountResponse::hidden);
-        verify(accountRepository, never()).findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(any());
+        verify(accessResolver).readableAccounts(1L);
     }
 
     @Test

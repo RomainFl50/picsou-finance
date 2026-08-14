@@ -16,6 +16,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,6 +44,18 @@ class DashboardServiceLiabilityTest {
             debtRepository, loanAmortizationService, accountService,
             accessResolver
         );
+        // Fixtures own their accounts outright, so readableAccounts mirrors the repository
+        // and every share is 100% -- weighting becomes the identity.
+        lenient().when(accessResolver.readableAccounts(any())).thenAnswer(inv ->
+            accountRepository.findAllByMemberIdOrderByCreatedAtAsc(inv.getArgument(0)));
+        lenient().when(accessResolver.sharesFor(any(), any())).thenAnswer(inv -> {
+            java.util.Collection<Account> accounts = inv.getArgument(0);
+            java.util.Map<Long, java.math.BigDecimal> shares = new java.util.HashMap<>();
+            for (Account a : accounts) {
+                shares.put(a.getId(), new java.math.BigDecimal("100"));
+            }
+            return shares;
+        });
     }
 
     @Test
@@ -66,7 +79,7 @@ class DashboardServiceLiabilityTest {
         debt.setEndDate(LocalDate.of(2037, 1, 1));
         debt.setAccount(loan);
 
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
         when(holdingRepository.findByAccount_Id(10L)).thenReturn(List.of());
         // Loans are valued through AccountService.liveBalanceEur (positive remaining balance).
         when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("80000"));
@@ -99,7 +112,7 @@ class DashboardServiceLiabilityTest {
         loan.setCurrency("EUR");
         loan.setColor("#f97316");
 
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
         when(holdingRepository.findByAccount_Id(11L)).thenReturn(List.of());
         when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("15000"));
         when(debtRepository.findByAccountIdIn(List.of(11L))).thenReturn(List.of());
@@ -130,7 +143,7 @@ class DashboardServiceLiabilityTest {
         debt.setBorrowedAmount(new BigDecimal("5000"));
         // intentionally no startDate / endDate / monthlyPayment
 
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(loan));
         when(holdingRepository.findByAccount_Id(12L)).thenReturn(List.of());
         when(accountService.liveBalanceEur(loan)).thenReturn(new BigDecimal("5000"));
         when(debtRepository.findByAccountIdIn(List.of(12L))).thenReturn(List.of(debt));
@@ -170,7 +183,7 @@ class DashboardServiceLiabilityTest {
         pocket.setColor("#6366f1");
         pocket.setParentAccountId(20L);
 
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(1L)).thenReturn(List.of(wallet, pocket));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(wallet, pocket));
         when(holdingRepository.findByAccount_Id(20L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(21L)).thenReturn(List.of());
         when(priceService.toEur(any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));

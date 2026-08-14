@@ -67,7 +67,7 @@ class DashboardServiceTest {
             .averageBuyIn(new BigDecimal("100"))
             .currentPrice(new BigDecimal("999"))
             .build();
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(account));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(account));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(holding));
         // Unpriced on both sides: valuation() drops the holding from the value *and* the cost
         // basis, which is the whole point -- keeping its 1000 EUR cost while its value is gone
@@ -98,7 +98,7 @@ class DashboardServiceTest {
             .averageBuyIn(new BigDecimal("100"))
             .currentPrice(new BigDecimal("999"))
             .build();
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(account));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(account));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of(holding));
         when(accountService.valuation(account))
             .thenReturn(new AccountService.Valuation(
@@ -159,7 +159,7 @@ class DashboardServiceTest {
             .color("#22c55e")
             .build();
         Account loanAcc = loanAccount();               // id 10, LOAN 10000
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L))
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L))
             .thenReturn(List.of(cashAcc, savingsAcc, loanAcc));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(2L)).thenReturn(List.of());
@@ -184,7 +184,7 @@ class DashboardServiceTest {
     void getDashboard_loanValuation_usesAmortizedLiveBalance_notStoredBalance() {
         Account loanAcc = loanAccount();               // stored balance 10000
         Account cashAcc = cashAccount();
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(loanAcc, cashAcc));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(loanAcc, cashAcc));
         when(holdingRepository.findByAccount_Id(10L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
         // Amortization has progressed: remaining capital 9500 < stored 10000.
@@ -205,7 +205,7 @@ class DashboardServiceTest {
     @Test
     void getDashboard_rangeSwitch_mapsMonths() {
         Account cashAcc = cashAccount();
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(cashAcc));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(cashAcc));
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
         when(priceService.toEur(new BigDecimal("2000"), "EUR", null)).thenReturn(new BigDecimal("2000"));
         when(historyService.buildHistory(List.of(1L), 3, 42L)).thenReturn(List.of());
@@ -221,7 +221,7 @@ class DashboardServiceTest {
     private void stubLoanAndCashFixture() {
         Account loanAcc = loanAccount();
         Account cashAcc = cashAccount();
-        when(accountRepository.findAllByMemberIdAndHiddenFalseOrderByCreatedAtAsc(42L)).thenReturn(List.of(loanAcc, cashAcc));
+        when(accountRepository.findAllByMemberIdOrderByCreatedAtAsc(42L)).thenReturn(List.of(loanAcc, cashAcc));
         when(holdingRepository.findByAccount_Id(10L)).thenReturn(List.of());
         when(holdingRepository.findByAccount_Id(1L)).thenReturn(List.of());
         // Loans are valued through AccountService.liveBalanceEur (amortized when a Debt
