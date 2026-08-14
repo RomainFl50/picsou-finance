@@ -10,17 +10,20 @@
 DELETE FROM account
 WHERE deleted_at IS NULL
   AND external_account_id IS NOT NULL
+  AND is_manual = false
   AND id NOT IN (
     SELECT DISTINCT ON (external_account_id, member_id, provider) id
     FROM account
-    WHERE deleted_at IS NULL AND external_account_id IS NOT NULL
+    WHERE deleted_at IS NULL AND external_account_id IS NOT NULL AND is_manual = false
     ORDER BY external_account_id, member_id, provider, id DESC
   );
 
--- Step 2: Partial unique index — only constrains active (non-deleted) accounts.
--- Soft-deleted tombstones (deleted_at IS NOT NULL) are intentionally excluded so the same
+-- Step 2: Partial unique index — only constrains active, non-manual accounts.
+-- Manual accounts are excluded: external_account_id is free text on manual rows
+-- (see V75), so two manual accounts may legitimately share one.
+-- Soft-deleted tombstones (deleted_at IS NOT NULL) are excluded so the same
 -- externalId can be reused when the user reconnects after an explicit deletion.
 -- Provider is included so two banks issuing the same opaque id don't collide.
 CREATE UNIQUE INDEX account_external_unique_active
   ON account(external_account_id, member_id, provider)
-  WHERE deleted_at IS NULL AND external_account_id IS NOT NULL;
+  WHERE deleted_at IS NULL AND external_account_id IS NOT NULL AND is_manual = false;
