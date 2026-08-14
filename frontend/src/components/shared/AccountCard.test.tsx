@@ -27,7 +27,6 @@ class MockImage {
   naturalWidth = 0
   private listeners = new Map<string, Set<(event: { currentTarget: MockImage }) => void>>()
   private _src = ''
-  private handlers: Record<string, Set<() => void>> = { load: new Set(), error: new Set() }
 
   addEventListener(type: string, listener: (event: { currentTarget: MockImage }) => void) {
     const listeners = this.listeners.get(type) ?? new Set()
@@ -57,20 +56,6 @@ class MockImage {
   }
   get src() {
     return this._src
-  }
-
-  private dispatch() {
-    const src = this._src
-    queueMicrotask(() => {
-      if (this._src !== src) return
-      if (src.includes('broken')) {
-        this.onerror?.()
-        this.handlers.error.forEach((h) => h())
-      } else {
-        this.onload?.()
-        this.handlers.load.forEach((h) => h())
-      }
-    })
   }
 }
 
