@@ -44,6 +44,7 @@ CREATE TABLE transaction (
     native_currency VARCHAR(10)     NOT NULL,
     created_at      TIMESTAMP       NOT NULL,
     is_manual       BOOLEAN         NOT NULL,
+    external_id     VARCHAR(100),
     tx_type         VARCHAR(20),
     ticker          VARCHAR(30),
     name            VARCHAR(100),

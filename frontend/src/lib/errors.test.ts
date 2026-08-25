@@ -4,6 +4,7 @@ import {
   safeBackendMessage,
   formatApiError,
   formatTrAuthError,
+  fortuneoErrorMessage,
   getErrorCode,
 } from './errors'
 
@@ -65,6 +66,14 @@ describe('getErrorCode', () => {
 
   it('ignores non-string codes', () => {
     expect(getErrorCode({ response: { data: { code: 42 } } })).toBeUndefined()
+  })
+})
+
+describe('fortuneoErrorMessage', () => {
+  it('explains how to unblock an investor-profile gate', () => {
+    expect(fortuneoErrorMessage(t, 'INVESTOR_PROFILE_REQUIRED')).toBe(
+      'sync.fortuneo.errors.investorProfileRequired'
+    )
   })
 })
 
