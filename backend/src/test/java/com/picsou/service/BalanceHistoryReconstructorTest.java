@@ -19,13 +19,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,13 +49,35 @@ class BalanceHistoryReconstructorTest {
     @Captor ArgumentCaptor<List<BalanceSnapshot>> snapshotsCaptor;
 
     BalanceHistoryReconstructor reconstructor;
+    Map<String, BigDecimal> pricesByTicker;
 
     @BeforeEach
     void setUp() {
         reconstructor = new BalanceHistoryReconstructor(
             transactionRepository, snapshotRepository, priceSnapshotRepository);
+        pricesByTicker = new HashMap<>();
         lenient().when(snapshotRepository.findByAccountIdAndDate(anyLong(), any()))
             .thenReturn(Optional.empty());
+        lenient().when(snapshotRepository.findByAccountIdAndDateBetweenOrderByDateAsc(
+            anyLong(), any(), any())).thenReturn(List.of());
+        lenient().when(priceSnapshotRepository.findByTickerInAndDateBetween(any(), any(), any()))
+            .thenAnswer(invocation -> {
+                Set<String> tickers = invocation.getArgument(0);
+                LocalDate from = invocation.getArgument(1);
+                LocalDate to = invocation.getArgument(2);
+                List<PriceSnapshot> snapshots = new ArrayList<>();
+                for (String ticker : tickers) {
+                    BigDecimal price = pricesByTicker.get(ticker);
+                    if (price == null) {
+                        continue;
+                    }
+                    for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+                        snapshots.add(PriceSnapshot.builder()
+                            .ticker(ticker).date(date).priceEur(price).build());
+                    }
+                }
+                return snapshots;
+            });
     }
 
     private Account account(AccountType type) {
@@ -78,9 +103,7 @@ class BalanceHistoryReconstructorTest {
     }
 
     private void priceIs(String ticker, String priceEur) {
-        when(priceSnapshotRepository.findByTickerAndDate(eq(ticker), any()))
-            .thenReturn(Optional.of(PriceSnapshot.builder()
-                .ticker(ticker).priceEur(new BigDecimal(priceEur)).build()));
+        pricesByTicker.put(ticker, new BigDecimal(priceEur));
     }
 
     @Test
@@ -126,9 +149,7 @@ class BalanceHistoryReconstructorTest {
         when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of(
             trade(TODAY.minusDays(10), TransactionType.BUY, "TTE.PA", "10")
         ));
-        when(priceSnapshotRepository.findByTickerAndDate(eq("TTE.PA"), any()))
-            .thenReturn(Optional.of(PriceSnapshot.builder()
-                .ticker("TTE.PA").priceEur(new BigDecimal("50")).build()));
+        priceIs("TTE.PA", "50");
 
         int created = reconstructor.reconstruct(account(AccountType.PEA), new BigDecimal("500"), TODAY);
 
@@ -243,13 +264,34 @@ class BalanceHistoryReconstructorTest {
         when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of(
             trade(TODAY.minusDays(10), TransactionType.BUY, "TTE.PA", "10")
         ));
-        when(priceSnapshotRepository.findByTickerAndDate(eq("TTE.PA"), any()))
-            .thenReturn(Optional.empty());
-
         int created = reconstructor.reconstruct(account(AccountType.PEA), new BigDecimal("500"), TODAY);
 
         assertThat(created).isZero();
         verify(snapshotRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void batchesPricesAndExistingSnapshotsBeforeTheDailyReplay() {
+        LocalDate firstDay = TODAY.minusDays(10);
+        when(transactionRepository.findByAccountIdAndIsManualFalse(20L)).thenReturn(List.of(
+            trade(firstDay, TransactionType.BUY, "TTE.PA", "10")
+        ));
+        priceIs("TTE.PA", "50");
+        when(snapshotRepository.findByAccountIdAndDateBetweenOrderByDateAsc(
+            20L, firstDay, TODAY.minusDays(1))).thenReturn(List.of(
+                BalanceSnapshot.builder().date(TODAY.minusDays(5)).build()
+            ));
+
+        int created = reconstructor.reconstruct(
+            account(AccountType.PEA), new BigDecimal("500"), TODAY);
+
+        assertThat(created).isEqualTo(9);
+        verify(priceSnapshotRepository).findByTickerInAndDateBetween(
+            Set.of("TTE.PA"), firstDay, TODAY.minusDays(1));
+        verify(snapshotRepository).findByAccountIdAndDateBetweenOrderByDateAsc(
+            20L, firstDay, TODAY.minusDays(1));
+        verify(priceSnapshotRepository, never()).findByTickerAndDate(any(), any());
+        verify(snapshotRepository, never()).findByAccountIdAndDate(anyLong(), any());
     }
 
     @Test

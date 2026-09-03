@@ -27,6 +27,7 @@ test.describe('Sync page tabs', () => {
     for (const name of providerNames) {
       await expect(page.getByRole('tab', { name, exact: true })).toBeVisible()
     }
+    await expect(page.getByRole('tab')).toHaveCount(providerNames.length)
   })
 
   test('should show the disconnected Fortuneo panel without a contract error', async ({ page }) => {

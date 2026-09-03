@@ -60,6 +60,10 @@ code. Pending contexts are single-use, expire quickly and are removed on
 failure. Credentials and one-time codes are never returned by the API, written
 to logs or persisted.
 
+If neither the authenticated page nor the one-time-code form appears before the
+login deadline, the attempt is reported as an upstream availability failure.
+A timeout is not treated as proof that the submitted credentials were invalid.
+
 The authenticated browser state is encrypted by the backend before it is
 stored. Session status lookups are scoped to the current member. Startup
 recovery is deliberately system-wide so every interrupted member job is
@@ -87,10 +91,10 @@ PEA-PME intentionally shares Picsou's `PEA` type because the domain has no
 separate type. Its provider subtype remains available to select the correct
 legacy route.
 
-A linked cash pocket is folded into its parent CTO only when the relationship
-is unambiguous. An unmatched or ambiguous pocket makes the response invalid;
-silently attaching cash to the wrong securities account would corrupt net
-worth.
+A linked Equipment cash pocket is folded into its parent CTO only when the
+relationship is unambiguous. It is an optional cross-check, not the source of
+the final balance: unmatched or ambiguous pockets are discarded, and each
+securities account later receives its cash from its own legacy portfolio page.
 
 Every provider account uses a stable external identifier. The backend upserts
 within the current member and provider scope and never matches accounts by
@@ -104,16 +108,20 @@ sidecar establishes the corresponding legacy session. The parser reads:
 - the provider instrument label and identifier;
 - quantity, current price and average purchase price;
 - the broker valuation;
-- the page's securities and cash summaries.
+- the page's securities, cash and total summaries.
 
 French numbers may contain normal spaces, non-breaking spaces or thin spaces.
 The parser normalizes all of them before decimal conversion. Missing required
 columns, unreadable decimals or a declared total inconsistent with parsed rows
 invalidate the snapshot.
 
-The broker valuation is authoritative for the account total. Public market
-data may not cover unlisted or provider-specific instruments, so Picsou keeps
-the broker total when not every Fortuneo holding can be priced externally.
+The legacy page is authoritative for a securities account's positions, cash and
+total. The sidecar verifies that the position rows match the securities summary
+and that securities plus cash match the total before returning this single
+snapshot. The separately fetched Equipment total is diagnostic only, because a
+normal market move between the two requests must not reject valid data. Public
+market data may not cover unlisted or provider-specific instruments, so Picsou
+keeps the broker total when not every Fortuneo holding can be priced externally.
 
 Cash is accepted only when it can be derived from or checked against the same
 complete portfolio snapshot. Picsou does not default a securities account's
@@ -122,8 +130,10 @@ full balance to cash.
 ## Cash transactions
 
 Cash accounts use the provider transaction endpoint. The product-specific
-`CAV,PENDING` filter is sent only for `CHECKING` and `SAVINGS` accounts.
-Securities accounts use their separate legacy ledger.
+`CAV` filter is sent only for `CHECKING` and `SAVINGS` accounts; pending entries
+are excluded because the current booked balance does not include them and they
+would shift every reconstructed historical balance. Securities accounts use
+their separate legacy ledger.
 
 The provider response can extend beyond Picsou's former rolling window. Picsou
 therefore reconciles every returned entry. Stable provider IDs are stored as
@@ -144,7 +154,9 @@ account payload.
 PEA and CTO operations come from the legacy history page. The sidecar submits
 the page's own search form, requests the earliest supported start date and
 paginates until the declared total is collected. A missing total or partial
-page rejects the ledger.
+page rejects the ledger. The declared count, rather than a fixed 4,000-row
+client limit, controls pagination; implausible totals and pages that stop making
+progress fail explicitly without returning a partial or deceptively empty list.
 
 Operation labels map to Picsou transaction types as follows:
 
@@ -185,6 +197,11 @@ For securities accounts, quantities are replayed forward from the first trade in
 the ledger and valued day by day against `price_snapshot`. A day where any held
 instrument has no price is skipped rather than valued at a stale one, so a gap
 in the curve means "not established", never "worth nothing".
+
+Prices for every traded ticker and existing account snapshots are loaded in two
+range queries before the daily replay. The day loop performs no repository
+lookup, keeping long-lived accounts from generating a query per ticker and day
+while preserving the import transaction's atomicity.
 
 The cost basis is replayed alongside the quantities and written to the
 snapshot's `invested_amount`: a purchase adds `quantity x execution price` plus

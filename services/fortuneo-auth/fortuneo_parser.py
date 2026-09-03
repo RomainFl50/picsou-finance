@@ -58,11 +58,19 @@ _BOURSE_URL_SEGMENT_TO_TYPE = {
 _CURRENCY_CODE = r"(?:EUR|USD|GBP|CHF|JPY|CAD|AUD|NZD|SEK|NOK|DKK|GBX)"
 
 
+def _normalize_spaces(value: str) -> str:
+    """Fold every Unicode space separator to a plain space."""
+    return "".join(
+        " " if (unicodedata.category(char) == "Zs" or char in "  ") else char
+        for char in value
+    )
+
+
 def decimal_value(raw: Any, field: str = "value") -> Decimal:
     """Parse a required decimal without turning protocol drift into a false zero."""
     if raw is None or isinstance(raw, bool):
         raise PortfolioFormatError(f"Missing {field}")
-    value = str(raw).strip().replace("\xa0", " ").replace(" ", " ")
+    value = _normalize_spaces(str(raw)).strip()
     negative_parentheses = value.startswith("(") and value.endswith(")")
     if negative_parentheses:
         value = value[1:-1].strip()
@@ -101,8 +109,12 @@ def decimal_value(raw: Any, field: str = "value") -> Decimal:
         head, tail = cleaned.rsplit(",", 1)
         cleaned = head.replace(",", "") + "." + tail
     elif cleaned.count(".") > 1:
-        head, tail = cleaned.rsplit(".", 1)
-        cleaned = head.replace(".", "") + "." + tail
+        groups = cleaned.lstrip("+-").split(".")
+        if all(len(group) == 3 for group in groups[1:]):
+            cleaned = cleaned.replace(".", "")
+        else:
+            head, tail = cleaned.rsplit(".", 1)
+            cleaned = head.replace(".", "") + "." + tail
     else:
         cleaned = cleaned.replace(",", ".")
     try:
@@ -289,23 +301,16 @@ def fold_cash_pockets_into_securities_accounts(
     """Fold CTO cash-pocket entries (`type is None`) into their CTO's
     `cashBalance`, returning a new list with the cash-pocket entries removed.
 
-    Pairs 1:1 when there is exactly one `COMPTE_TITRES` account and exactly
-    one cash-pocket entry (the observed, and presumably common, case). Any
-    other count raises PortfolioFormatError rather than guessing a pairing
-    -- ambiguous multi-CTO cases should use `parse_bourse_synthese_table`'s
-    explicit link instead (not yet wired in; see module docstring).
+    Pairs 1:1 only when there is exactly one `COMPTE_TITRES` account and one
+    cash-pocket entry. The Equipment pocket is merely a later cross-check:
+    the legacy portfolio page supplies the authoritative per-account cash, so
+    unmatched or ambiguous pockets are discarded rather than blocking every
+    otherwise valid account in the response.
 
     CHECKING/SAVINGS accounts get `cashBalance = balanceEur` (genuinely no
-    positions). CTO accounts get their paired cash pocket's own balance, or
-    `None` if none is present, for the caller to reject as an incomplete
-    snapshot. **PEA accounts also get `cashBalance = None`** -- unlike
-    CHECKING/SAVINGS, a PEA can hold stock positions, and unlike CTO
-    there is no separate "cash pocket" account to source a true cash figure
-    from. Without per-position data (not yet implemented, see module
-    docstring), there is no way to know a PEA's actual cash-vs-position
-    split, so guessing `cashBalance = balanceEur` would silently misreport
-    a populated PEA as 100% cash. `None` here makes the caller
-    reject the snapshot instead.
+    positions). Securities accounts otherwise get `cashBalance = None`; the
+    caller replaces it with cash from the same legacy snapshot as their
+    positions and total.
     """
     if not isinstance(accounts, list) or any(not isinstance(a, dict) for a in accounts):
         raise PortfolioFormatError("Equipment accounts had an invalid shape")
@@ -314,24 +319,16 @@ def fold_cash_pockets_into_securities_accounts(
 
     ctos = [a for a in accounts if a["type"] == "COMPTE_TITRES"]
     pockets = [a for a in accounts if a["type"] is None]
-    if len(ctos) > 1:
-        raise PortfolioFormatError(
-            "Cannot safely pair multiple CTO accounts with their cash pockets"
-        )
-    if len(ctos) != len(pockets):
-        raise PortfolioFormatError(
-            f"Cannot pair {len(ctos)} CTO account(s) with {len(pockets)} cash pocket(s)"
-        )
-
-    pocket_balance_by_index = {id(cto): pocket["balanceEur"] for cto, pocket in zip(ctos, pockets)}
+    paired_cto = ctos[0] if len(ctos) == 1 and len(pockets) == 1 else None
+    paired_pocket_balance = pockets[0]["balanceEur"] if paired_cto is not None else None
     cash_only_types = {"CHECKING", "SAVINGS"}
     result: list[dict[str, Any]] = []
     for account in accounts:
         if account["type"] is None:
             continue  # cash pocket, folded below
         folded = dict(account)
-        if account["type"] == "COMPTE_TITRES":
-            folded["cashBalance"] = pocket_balance_by_index[id(account)]
+        if account is paired_cto:
+            folded["cashBalance"] = paired_pocket_balance
         elif account["type"] in cash_only_types:
             folded["cashBalance"] = account["balanceEur"]
         else:
@@ -742,22 +739,6 @@ def _mask(value: str) -> str:
     masked = re.sub(r"[0-9]", "N", masked)
     return "".join(
         char if char.isascii() else f"<U+{ord(char):04X}>" for char in masked
-    )
-
-
-def _normalize_spaces(value: str) -> str:
-    """Fold every Unicode space separator to a plain space.
-
-    Fortuneo groups thousands with a space, but not always the same one: a
-    regular space, U+00A0 and U+202F have all been seen, and a securities
-    history page also uses U+2009. Handling them one at a time is how this
-    parser has already failed twice, silently, on pages that did hold the data
-    -- so every `Zs` character is folded, plus the fixed-width spaces that are
-    not in that category.
-    """
-    return "".join(
-        " " if (unicodedata.category(char) == "Zs" or char in "  ") else char
-        for char in value
     )
 
 

@@ -6,7 +6,6 @@ Live authentication remains a separate manual validation step documented in
 ``docs/features/fortuneo.md``.
 """
 
-import asyncio
 import unittest
 from unittest.mock import patch
 
@@ -177,9 +176,9 @@ class FortuneoNavigationTest(unittest.IsolatedAsyncioTestCase):
         )
 
         await self.page.evaluate(_SSO_SUBMIT_SCRIPT)
-        await asyncio.sleep(0)
-
-        self.assertEqual(await self.page.title(), "post:/ssoacces")
+        await self.page.wait_for_function(
+            "() => document.title === 'post:/ssoacces'", timeout=5_000
+        )
 
 
 if __name__ == "__main__":

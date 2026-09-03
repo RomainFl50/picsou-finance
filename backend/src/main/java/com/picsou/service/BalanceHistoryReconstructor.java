@@ -20,6 +20,8 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -153,17 +155,42 @@ public class BalanceHistoryReconstructor {
             return 0;
         }
 
+        LocalDate firstDay = trades.getFirst().getDate();
+        if (!firstDay.isBefore(today)) {
+            return 0;
+        }
+        LocalDate lastDay = today.minusDays(1);
+        Set<String> tickers = new HashSet<>();
+        for (Transaction trade : trades) {
+            tickers.add(trade.getTicker());
+        }
+        Map<PriceKey, BigDecimal> prices = new HashMap<>();
+        for (PriceSnapshot price : priceSnapshotRepository.findByTickerInAndDateBetween(
+            tickers,
+            firstDay,
+            lastDay
+        )) {
+            if (price.getTicker() != null && price.getDate() != null && price.getPriceEur() != null) {
+                prices.put(new PriceKey(price.getTicker(), price.getDate()), price.getPriceEur());
+            }
+        }
+        Set<LocalDate> existingDates = new HashSet<>();
+        for (BalanceSnapshot snapshot : snapshotRepository
+            .findByAccountIdAndDateBetweenOrderByDateAsc(account.getId(), firstDay, lastDay)) {
+            existingDates.add(snapshot.getDate());
+        }
+
         // Valued day by day rather than only on the days the account traded: between two trades
         // the holdings are unchanged but their price is not, and a curve that only moves when
         // something was bought would hide exactly the fluctuation it exists to show.
         List<BalanceSnapshot> created = new ArrayList<>();
         Map<String, Position> held = new LinkedHashMap<>();
         int next = 0;
-        for (LocalDate day = trades.getFirst().getDate(); day.isBefore(today); day = day.plusDays(1)) {
+        for (LocalDate day = firstDay; day.isBefore(today); day = day.plusDays(1)) {
             while (next < trades.size() && !trades.get(next).getDate().isAfter(day)) {
                 apply(held, trades.get(next++));
             }
-            valueOn(created, account, day, held);
+            valueOn(created, account, day, held, prices, existingDates);
         }
         return persist(account, created);
     }
@@ -178,6 +205,8 @@ public class BalanceHistoryReconstructor {
     private record Position(BigDecimal quantity, BigDecimal costBasis) {
         static final Position EMPTY = new Position(BigDecimal.ZERO, BigDecimal.ZERO);
     }
+
+    private record PriceKey(String ticker, LocalDate date) {}
 
     /**
      * Books one trade into the running positions.
@@ -247,7 +276,9 @@ public class BalanceHistoryReconstructor {
         List<BalanceSnapshot> created,
         Account account,
         LocalDate date,
-        Map<String, Position> held
+        Map<String, Position> held,
+        Map<PriceKey, BigDecimal> prices,
+        Set<LocalDate> existingDates
     ) {
         BigDecimal value = BigDecimal.ZERO;
         BigDecimal basis = BigDecimal.ZERO;
@@ -256,18 +287,31 @@ public class BalanceHistoryReconstructor {
             if (position.quantity().signum() <= 0) {
                 continue;
             }
-            PriceSnapshot price = priceSnapshotRepository
-                .findByTickerAndDate(entry.getKey(), date)
-                .orElse(null);
-            if (price == null || price.getPriceEur() == null) {
+            BigDecimal price = prices.get(new PriceKey(entry.getKey(), date));
+            if (price == null) {
                 return;
             }
-            value = value.add(position.quantity().multiply(price.getPriceEur()));
+            value = value.add(position.quantity().multiply(price));
             basis = addCost(basis, position.costBasis());
         }
         if (value.signum() > 0) {
-            addIfAbsent(created, account, date, value, basis == null ? value : basis);
+            addIfAbsent(created, account, date, value, basis == null ? value : basis, existingDates);
         }
+    }
+
+    private void addIfAbsent(
+        List<BalanceSnapshot> created,
+        Account account,
+        LocalDate date,
+        BigDecimal balance,
+        BigDecimal investedAmount,
+        Set<LocalDate> existingDates
+    ) {
+        if (existingDates.contains(date)) {
+            return;
+        }
+        created.add(snapshot(account, date, balance, investedAmount));
+        existingDates.add(date);
     }
 
     private void addIfAbsent(
@@ -280,12 +324,21 @@ public class BalanceHistoryReconstructor {
         if (snapshotRepository.findByAccountIdAndDate(account.getId(), date).isPresent()) {
             return;
         }
-        created.add(BalanceSnapshot.builder()
+        created.add(snapshot(account, date, balance, investedAmount));
+    }
+
+    private BalanceSnapshot snapshot(
+        Account account,
+        LocalDate date,
+        BigDecimal balance,
+        BigDecimal investedAmount
+    ) {
+        return BalanceSnapshot.builder()
             .account(account)
             .date(date)
             .balance(balance)
             .investedAmount(investedAmount)
-            .build());
+            .build();
     }
 
     private int persist(Account account, List<BalanceSnapshot> created) {

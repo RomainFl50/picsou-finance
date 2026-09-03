@@ -64,13 +64,14 @@ EQUIPMENT_GRAPHQL_URL = f"{API_BASE_URL}/account-items-bff/graphql"
 # of its own -- the page already holds the whole list and renders only six of
 # it -- so this single call is what decides how much history is reachable.
 TRANSACTIONS_URL_TEMPLATE = f"{API_BASE_URL}/fto-transaction-api/v1/accounts/{{web_id}}/transactions"
-# `transactionType=CAV,PENDING` is what Fortuneo's own frontend sends from a
-# *cash* account screen -- CAV is "compte a vue". Anonymized response-shape
-# checks confirmed that it returns entries beyond Picsou's former rolling
-# window. It is a filter keyed on the product,
+# Fortuneo's cash account screen requests both booked (`CAV`) and pending
+# entries. Picsou requests only CAV because its anchor balance is booked too;
+# replaying pending entries against it would shift the reconstructed history.
+# Anonymized response-shape checks confirmed that CAV returns entries beyond
+# Picsou's former rolling window. It is a filter keyed on the product,
 # so it is deliberately NOT sent for PEA/CTO: those have their own ledger and
 # asking a securities account for its "compte a vue" entries is meaningless.
-CASH_TRANSACTION_TYPES = "CAV,PENDING"
+CASH_TRANSACTION_TYPES = "CAV"
 CASH_ACCOUNT_TYPES = ("CHECKING", "SAVINGS")
 # Fortuneo runs TWO frontends: the modern SPA (`/mon-espace`, OAuth/PKCE
 # token auth, used for the api.fortuneo.fr calls above) and a legacy
@@ -109,11 +110,12 @@ SECURITIES_HISTORY_URL_TEMPLATE = (
     f"{BASE_URL}/fr/prive/mes-comptes/{{segment}}/historique/historique-titres.jsp?ca={{ca}}"
 )
 # The legacy page accepts an arbitrary range. Starting before Fortuneo existed
-# avoids imposing a client-side cutoff. HISTORY_MAX_PAGES is a backstop: a server that always reports
-# "more" cannot spin this loop forever.
+# avoids imposing a client-side cutoff. The declared row count bounds normal
+# pagination; an implausibly large value fails closed instead of causing an
+# effectively unbounded request loop.
 SECURITIES_HISTORY_START_DATE = date(1990, 1, 1)
 HISTORY_PAGE_SIZE = 100
-HISTORY_MAX_PAGES = 40
+HISTORY_MAX_DECLARED_ROWS = 100_000
 
 # Provider login form attributes are more stable than build-hashed CSS-module
 # class names
@@ -917,11 +919,10 @@ async def initiate(req: InitiateRequest) -> dict:
                 "sessionState": session_state,
             }
 
-        # "timeout": neither the dashboard nor the OTP screen appeared.
-        # Fortuneo has no confirmed error-message selector to distinguish
-        # rejected credentials from a slow/changed page, so this is the
-        # best available signal.
-        raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+        # "timeout": neither the dashboard nor the OTP screen appeared. That
+        # is not proof that Fortuneo rejected valid credentials, so report an
+        # upstream availability failure and let the user retry honestly.
+        raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
     except HTTPException:
         # Both success paths above return before this point, so a stored
         # pending context never reaches this handler.
@@ -1465,7 +1466,7 @@ async def _fetch_securities_history(
     referential: dict[str, str] = {}
     offset = 0
 
-    for _ in range(HISTORY_MAX_PAGES):
+    while True:
         result = await _page_fetch(
             page,
             url,
@@ -1494,8 +1495,18 @@ async def _fetch_securities_history(
         total_match = re.search(
             r'name="nbResultatsTotal"[^>]*value="(\d{1,9})"', html, flags=re.IGNORECASE
         )
-        if total_match:
-            declared_total = int(total_match.group(1))
+        if not total_match:
+            log.warning("Fortuneo history page declared no total")
+            raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+        page_total = int(total_match.group(1))
+        if page_total > HISTORY_MAX_DECLARED_ROWS:
+            log.warning("Fortuneo history declared an implausibly large row count")
+            raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
+        if declared_total is None:
+            declared_total = page_total
+        elif page_total != declared_total:
+            log.warning("Fortuneo history total changed during pagination")
+            raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
         if not referential:
             referential = parse_securities_referential(html)
         try:
@@ -1504,21 +1515,18 @@ async def _fetch_securities_history(
             log.warning("Fortuneo history page did not parse")
             raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED") from exc
         if not page_rows:
+            if offset < declared_total:
+                log.warning("Fortuneo history pagination stopped before the declared total")
+                raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
             break
         operations.extend(page_rows)
         offset += len(page_rows)
-        if declared_total is not None and offset >= declared_total:
+        if offset >= declared_total:
             break
 
-    if declared_total is None:
-        log.warning(
-            "Fortuneo history page declared no total; refusing a ledger "
-            "that cannot be shown to be complete"
-        )
-        return []
-    if len(operations) < declared_total:
-        log.warning("Fortuneo history read was incomplete; discarding the partial ledger")
-        return []
+    if len(operations) != declared_total:
+        log.warning("Fortuneo history row count did not match the declared total")
+        raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
 
     identified, _ = attach_securities_isins(operations, referential)
     transactions = _securities_history_transactions(identified)
@@ -1585,8 +1593,7 @@ def _is_login_page(html: str) -> bool:
 
 
 def _portfolio_snapshot(html: str) -> dict[str, Any] | None:
-    """Parse a portfolio page into `{"positions", "cashEur",
-    "securitiesEur"}`, or `None` if it is not a usable snapshot.
+    """Parse a portfolio page into one internally consistent snapshot.
 
     The page's summary table is the authority here, not the row list. It
     settles the one question the rows alone cannot answer: an account that
@@ -1600,14 +1607,25 @@ def _portfolio_snapshot(html: str) -> dict[str, Any] | None:
     Parses each document once even when callers try several fetch strategies.
     """
     summary = parse_portfolio_summary(html)
-    securities, cash = summary["securitiesEur"], summary["cashEur"]
-    if securities is None or cash is None:
+    securities, cash, account_total = (
+        summary["securitiesEur"],
+        summary["cashEur"],
+        summary["totalEur"],
+    )
+    if securities is None or cash is None or account_total is None:
         return None
     positions = parse_portfolio_positions(html)
     total = sum((p["currentValueEur"] for p in positions), start=Decimal("0"))
     if abs(total - securities) > PORTFOLIO_RECONCILE_TOLERANCE_EUR:
         return None
-    return {"positions": positions, "cashEur": cash, "securitiesEur": securities}
+    if abs(account_total - securities - cash) > PORTFOLIO_RECONCILE_TOLERANCE_EUR:
+        return None
+    return {
+        "positions": positions,
+        "cashEur": cash,
+        "securitiesEur": securities,
+        "totalEur": account_total,
+    }
 
 
 async def _fetch_positions(page: Page, segment: str, legacy_ca: str) -> dict[str, Any]:
@@ -1684,6 +1702,7 @@ async def accounts(req: AccountsRequest) -> list[AccountPayload]:
     pw: Playwright | None = None
     browser: Browser | None = None
     context: BrowserContext | None = None
+    page: Page | None = None
     try:
         pw = await async_playwright().start()
         browser = await pw.chromium.launch(headless=True)
@@ -1746,8 +1765,18 @@ async def accounts(req: AccountsRequest) -> list[AccountPayload]:
                 # Preferred over the Equipment cash pocket (CTO) or
                 # subtracting holdings from the total (PEA), which were
                 # only ever approximations of this number.
+                equipment_balance = account["balanceEur"]
                 pocket_cash = account["cashBalance"]
+                account["balanceEur"] = snapshot["totalEur"]
                 account["cashBalance"] = snapshot["cashEur"]
+                if (
+                    abs(equipment_balance - snapshot["totalEur"])
+                    > PORTFOLIO_RECONCILE_TOLERANCE_EUR
+                ):
+                    log.warning(
+                        "Fortuneo securities total moved between Equipment and the "
+                        "portfolio page; using the internally consistent portfolio snapshot"
+                    )
                 if (
                     pocket_cash is not None
                     and abs(pocket_cash - snapshot["cashEur"]) > PORTFOLIO_RECONCILE_TOLERANCE_EUR
@@ -1806,7 +1835,7 @@ async def accounts(req: AccountsRequest) -> list[AccountPayload]:
         # capture what the page actually shows (still a login form? an
         # interstitial?) since that's otherwise invisible once the browser
         # closes in `finally`.
-        if exc.status_code == 401 and "page" in locals():
+        if exc.status_code == 401 and page is not None:
             await _capture_failure_diagnostics(page, "accounts_session_expired")
         raise
     except (PortfolioFormatError, ValidationError) as exc:

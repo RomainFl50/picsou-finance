@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
@@ -23,6 +23,10 @@ class DecimalParsingTest(unittest.TestCase):
         self.assertEqual(str(decimal_value("1 234,56 €")), "1234.56")
         self.assertEqual(str(decimal_value("1.234,56 €")), "1234.56")
         self.assertEqual(str(decimal_value("-12,30 %")), "-12.30")
+
+    def test_decimal_parses_grouped_dots_and_unicode_spaces(self):
+        self.assertEqual(str(decimal_value("1.234.567")), "1234567")
+        self.assertEqual(str(decimal_value("1\u2009234\u202f567,89")), "1234567.89")
 
     def test_missing_or_invalid_decimal_is_never_coerced_to_zero(self):
         with self.assertRaises(PortfolioFormatError):
@@ -380,16 +384,18 @@ class EquipmentGraphqlTest(unittest.TestCase):
         pea = next(a for a in folded if a["webId"] == "PEAWEBID")
         self.assertIsNone(pea["cashBalance"])
 
-    def test_fold_cash_pockets_rejects_an_unpaired_ambiguous_case(self):
+    def test_fold_cash_pockets_discards_an_unpaired_pocket(self):
         accounts = [
             {"webId": "CTO1", "type": "COMPTE_TITRES", "label": "CTO 1", "balanceEur": decimal_value("10")},
             {"webId": "CTO2", "type": "COMPTE_TITRES", "label": "CTO 2", "balanceEur": decimal_value("20")},
             {"webId": "POCKET1", "type": None, "label": "Pocket", "balanceEur": decimal_value("10")},
         ]
-        with self.assertRaises(PortfolioFormatError):
-            fold_cash_pockets_into_securities_accounts(accounts)
+        folded = fold_cash_pockets_into_securities_accounts(accounts)
 
-    def test_fold_cash_pockets_rejects_multiple_ctos_even_when_counts_match(self):
+        self.assertEqual([account["webId"] for account in folded], ["CTO1", "CTO2"])
+        self.assertTrue(all(account["cashBalance"] is None for account in folded))
+
+    def test_fold_cash_pockets_does_not_guess_between_multiple_ctos(self):
         accounts = [
             {"webId": "CTO1", "type": "COMPTE_TITRES", "balanceEur": decimal_value("100")},
             {"webId": "CTO2", "type": "COMPTE_TITRES", "balanceEur": decimal_value("200")},
@@ -397,8 +403,10 @@ class EquipmentGraphqlTest(unittest.TestCase):
             {"webId": "POCKET2", "type": None, "balanceEur": decimal_value("20")},
         ]
 
-        with self.assertRaises(PortfolioFormatError):
-            fold_cash_pockets_into_securities_accounts(accounts)
+        folded = fold_cash_pockets_into_securities_accounts(accounts)
+
+        self.assertEqual([account["webId"] for account in folded], ["CTO1", "CTO2"])
+        self.assertTrue(all(account["cashBalance"] is None for account in folded))
 
     def test_fold_cash_pockets_rejects_missing_required_fields(self):
         with self.assertRaises(PortfolioFormatError):
@@ -944,6 +952,16 @@ class SecuritiesHistoryFingerprintTest(unittest.TestCase):
 
 
 class SecuritiesHistoryRequestTest(unittest.IsolatedAsyncioTestCase):
+    ROW = (
+        '<tr class="l1"><td>TEST</td><td>ACHAT COMPTANT</td><td>EURONEXT</td>'
+        '<td>02/03/2021</td><td>1</td><td>10,00</td><td>10,00</td>'
+        '<td>0,00</td><td>10,00</td><td>EUR</td></tr>'
+    )
+
+    @classmethod
+    def page(cls, total: int, rows: int) -> str:
+        return f'<input name="nbResultatsTotal" value="{total}">' + cls.ROW * rows
+
     async def test_requests_the_whole_possible_account_lifetime(self):
         from main import _fetch_securities_history
 
@@ -958,6 +976,48 @@ class SecuritiesHistoryRequestTest(unittest.IsolatedAsyncioTestCase):
         request_body = page_fetch.await_args.args[4]
         self.assertIn("dateDebut=01%2F01%2F1990", request_body)
 
+    async def test_paginates_beyond_four_thousand_operations(self):
+        from main import _fetch_securities_history
+
+        responses = [
+            {"status": 200, "text": self.page(4001, 100)} for _ in range(40)
+        ] + [{"status": 200, "text": self.page(4001, 1)}]
+        page_fetch = AsyncMock(side_effect=responses)
+
+        with patch("main._page_fetch", new=page_fetch):
+            transactions = await _fetch_securities_history(
+                object(), "pea", "legacy-id"
+            )
+
+        self.assertEqual(len(transactions), 4001)
+        self.assertEqual(page_fetch.await_count, 41)
+        self.assertIn("offset=4000", page_fetch.await_args.args[4])
+
+    async def test_missing_total_fails_loudly(self):
+        from main import _fetch_securities_history
+
+        with patch(
+            "main._page_fetch",
+            new=AsyncMock(return_value={"status": 200, "text": self.ROW}),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await _fetch_securities_history(object(), "pea", "legacy-id")
+
+        self.assertEqual(raised.exception.detail, "UPSTREAM_FORMAT_CHANGED")
+
+    async def test_short_history_read_fails_loudly(self):
+        from main import _fetch_securities_history
+
+        page_fetch = AsyncMock(side_effect=[
+            {"status": 200, "text": self.page(101, 100)},
+            {"status": 200, "text": self.page(101, 0)},
+        ])
+        with patch("main._page_fetch", new=page_fetch):
+            with self.assertRaises(HTTPException) as raised:
+                await _fetch_securities_history(object(), "pea", "legacy-id")
+
+        self.assertEqual(raised.exception.detail, "PORTFOLIO_INCOMPLETE")
+
 
 class PageFetchTest(unittest.IsolatedAsyncioTestCase):
     async def test_in_page_fetch_receives_an_abort_timeout(self):
@@ -971,6 +1031,37 @@ class PageFetchTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"status": 200, "text": "ok"})
         self.assertEqual(page.evaluate.await_args.args[1][-1], DATA_REQUEST_TIMEOUT_MS)
         self.assertIn("AbortSignal.timeout(timeoutMs)", _PAGE_FETCH_SCRIPT)
+
+
+class AuthenticationOutcomeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_slow_login_is_not_reported_as_invalid_credentials(self):
+        from main import InitiateRequest, initiate
+
+        field = AsyncMock()
+        page = AsyncMock()
+        context = AsyncMock()
+        context.new_page.return_value = page
+        browser = AsyncMock()
+        browser.new_context.return_value = context
+        playwright = AsyncMock()
+        playwright.chromium.launch.return_value = browser
+        manager = MagicMock()
+        manager.start = AsyncMock(return_value=playwright)
+
+        with (
+            patch("main.async_playwright", return_value=manager),
+            patch("main._cleanup_expired", new=AsyncMock()),
+            patch("main._attach_client_id_capture", return_value={"value": None}),
+            patch("main._first_visible", new=AsyncMock(side_effect=[field, field, field])),
+            patch("main._dismiss_cookie_consent", new=AsyncMock()),
+            patch("main._wait_for_login_outcome", new=AsyncMock(return_value="timeout")),
+            patch("main._close_resources", new=AsyncMock()),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await initiate(InitiateRequest(login="user", password="secret"))
+
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertEqual(raised.exception.detail, "UPSTREAM_UNAVAILABLE")
 
 
 class TransactionParsingTest(unittest.IsolatedAsyncioTestCase):
@@ -1054,7 +1145,8 @@ class TransactionParsingTest(unittest.IsolatedAsyncioTestCase):
 
         requested_url = page_fetch.await_args.args[1]
         self.assertIn("/fto-transaction-api/v1/accounts/account-id/transactions", requested_url)
-        self.assertIn("transactionType=CAV,PENDING", requested_url)
+        self.assertIn("transactionType=CAV", requested_url)
+        self.assertNotIn("PENDING", requested_url)
         self.assertIn("metadata=true", requested_url)
 
     async def test_investment_account_request_omits_the_cash_product_filter(self):
@@ -1357,15 +1449,36 @@ class PortfolioSummaryTest(unittest.TestCase):
         # selector must be an id that really wraps the summary rows.
         from main import PORTFOLIO_SUMMARY_SELECTOR
 
-        self.assertTrue(PORTFOLIO_SUMMARY_SELECTOR.startswith("#"))
-        block_id = PORTFOLIO_SUMMARY_SELECTOR[1:]
         page = (
-            f'<div class="block" id="{block_id}">'
+            '<div class="block" id="valorisation_compte">'
             + self._page("12 500,00", "1 234,56", "13 734,56")
             + "</div>"
         )
-        self.assertIn(f'id="{block_id}"', page)
+        self.assertEqual(PORTFOLIO_SUMMARY_SELECTOR, "#valorisation_compte")
         self.assertEqual(str(parse_portfolio_summary(page)["securitiesEur"]), "12500.00")
+
+    def test_portfolio_snapshot_uses_one_internally_consistent_total(self):
+        from main import _portfolio_snapshot
+
+        page = PORTFOLIO_POSITIONS_FIXTURE + self._page(
+            "10 500,00", "500,00", "11 000,00"
+        )
+
+        snapshot = _portfolio_snapshot(page)
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(str(snapshot["securitiesEur"]), "10500.00")
+        self.assertEqual(str(snapshot["cashEur"]), "500.00")
+        self.assertEqual(str(snapshot["totalEur"]), "11000.00")
+
+    def test_portfolio_snapshot_rejects_an_inconsistent_total(self):
+        from main import _portfolio_snapshot
+
+        page = PORTFOLIO_POSITIONS_FIXTURE + self._page(
+            "10 500,00", "500,00", "12 000,00"
+        )
+
+        self.assertIsNone(_portfolio_snapshot(page))
 
     def test_the_latent_gains_row_is_never_mistaken_for_the_securities_total(self):
         summary = parse_portfolio_summary(self._page("12 500,00", "1 234,56", "13 734,56"))
