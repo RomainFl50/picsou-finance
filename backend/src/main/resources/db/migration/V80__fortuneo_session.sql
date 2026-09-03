@@ -42,8 +42,5 @@ CREATE TABLE fortuneo_session (
 -- Fortuneo history idempotently instead of replacing a rolling time window.
 -- Nullable: manual rows and connectors without provider ids continue to use
 -- NULL, and the partial index constrains only identified provider rows.
+-- The index itself is built in V82, which runs outside a transaction.
 ALTER TABLE transaction ADD COLUMN IF NOT EXISTS external_id VARCHAR(100);
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_transaction_account_external_id
-    ON transaction (account_id, external_id)
-    WHERE external_id IS NOT NULL;
