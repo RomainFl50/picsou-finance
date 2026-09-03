@@ -123,11 +123,13 @@ query amplification of a nested date/ticker loop.
 - `FortuneoPort`, `FortuneoAdapter`, `FortuneoSyncService` and
   `FortuneoTransactionWriter` isolate transport, orchestration and persistence.
 - `fortuneo_session` stores encrypted browser state and observable job status;
-  Flyway migrations `V80`, `V81` and `V82` contain the complete Fortuneo schema
-  and integration setting without colliding with active feature branches. `V82`
-  builds the `transaction.external_id` unique index `CONCURRENTLY`, so it is the
-  one migration that runs outside a transaction — writes to `transaction` are
-  never blocked by the upgrade.
+  Flyway migrations `V80` and `V81` contain the complete Fortuneo schema and
+  integration setting without colliding with active feature branches. `V80`'s
+  unique index on `transaction (account_id, external_id)` is partial on
+  `external_id IS NOT NULL` and is created in the same migration that adds the
+  column, so no row qualifies while it is built — a plain `CREATE INDEX` is one
+  heap scan on a single-family database during an upgrade that has already
+  stopped the previous container.
 - Credentials and OTPs are never persisted, and sync failures leave imported
   accounts, holdings, transactions and history unchanged.
 - Sidecar, backend, frontend and end-to-end suites cover deterministic contract,
