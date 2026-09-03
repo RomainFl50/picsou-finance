@@ -40,6 +40,9 @@ The integration follows Picsou's ports-and-adapters structure:
 5. The backend validates the complete payload before changing accounts,
    holdings, transactions or snapshots.
 
+The architectural boundary, completeness rules and accepted trade-offs are
+recorded in the [Fortuneo ADR](../decisions/2026-07-26-fortuneo-isolated-atomic-history-sync.md).
+
 The sidecar is not exposed publicly by Docker Compose. Its inbound interface is
 on a dedicated internal network shared only with the backend; a separate
 sidecar-only egress network lets Chromium reach Fortuneo without making the

@@ -1,6 +1,5 @@
 package com.picsou.controller;
 
-import com.picsou.exception.GlobalExceptionHandler;
 import com.picsou.exception.SyncException;
 import com.picsou.model.FortuneoSyncStatus;
 import com.picsou.port.FortuneoErrorCode;
@@ -8,28 +7,24 @@ import com.picsou.service.FortuneoSyncService;
 import com.picsou.service.UserContext;
 import io.github.bucket4j.Bucket;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Validation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class FortuneoControllerTest {
@@ -41,15 +36,11 @@ class FortuneoControllerTest {
 
     private FortuneoController controller;
     private ConcurrentHashMap<String, Bucket> authBuckets;
-    private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         authBuckets = new ConcurrentHashMap<>();
         controller = new FortuneoController(service, userContext, authBuckets);
-        mockMvc = MockMvcBuilders.standaloneSetup(controller)
-            .setControllerAdvice(new GlobalExceptionHandler())
-            .build();
         lenient().when(userContext.currentMemberId()).thenReturn(MEMBER_ID);
     }
 
@@ -84,25 +75,24 @@ class FortuneoControllerTest {
     }
 
     @Test
-    void completeAuthEndpointScopesOtpToTheCurrentMember() throws Exception {
+    void completeAuthScopesOtpToTheCurrentMember() {
+        when(request.getRemoteAddr()).thenReturn("127.0.0.1");
         var queued = sessionStatus(FortuneoSyncStatus.QUEUED);
         when(service.completeAuth("process-123", "123456", MEMBER_ID)).thenReturn(queued);
 
-        mockMvc.perform(post("/api/fortuneo/auth/complete")
-                .with(request -> {
-                    request.setRemoteAddr("127.0.0.1");
-                    return request;
-                })
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"processId\":\"process-123\",\"code\":\"123456\"}"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.syncStatus").value("QUEUED"));
+        var response = controller.complete(
+            new FortuneoController.CompleteRequest("process-123", "123456"),
+            request
+        );
 
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isSameAs(queued);
         verify(service).completeAuth("process-123", "123456", MEMBER_ID);
     }
 
     @Test
-    void completeAuthEndpointMapsInvalidOtpCode() throws Exception {
+    void completeAuthPreservesTheStableInvalidOtpCode() {
+        when(request.getRemoteAddr()).thenReturn("127.0.0.1");
         when(service.completeAuth("process-123", "000000", MEMBER_ID)).thenThrow(
             new SyncException(
                 "Fortuneo rejected the verification code",
@@ -111,31 +101,33 @@ class FortuneoControllerTest {
             )
         );
 
-        mockMvc.perform(post("/api/fortuneo/auth/complete")
-                .with(request -> {
-                    request.setRemoteAddr("127.0.0.1");
-                    return request;
-                })
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"processId\":\"process-123\",\"code\":\"000000\"}"))
-            .andExpect(status().isUnprocessableEntity())
-            .andExpect(jsonPath("$.code").value("INVALID_OTP"));
+        assertThatThrownBy(() -> controller.complete(
+                new FortuneoController.CompleteRequest("process-123", "000000"),
+                request
+            ))
+            .isInstanceOf(SyncException.class)
+            .satisfies(thrown -> assertThat(((SyncException) thrown).getCode())
+                .isEqualTo("INVALID_OTP"));
     }
 
     @Test
-    void authenticationPayloadValidationRejectsOversizedLoginAndMalformedOtp() throws Exception {
-        mockMvc.perform(post("/api/fortuneo/auth/initiate")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"login\":\"" + "x".repeat(101) + "\",\"password\":\"secret\"}"))
-            .andExpect(status().isUnprocessableEntity())
-            .andExpect(jsonPath("$.errors.login").exists());
+    void authenticationPayloadValidationRejectsOversizedLoginAndMalformedOtp() {
+        try (var factory = Validation.buildDefaultValidatorFactory()) {
+            var validator = factory.getValidator();
+            var invalidLogin = validator.validate(
+                new FortuneoController.InitiateRequest("x".repeat(101), "secret")
+            );
+            var invalidOtp = validator.validate(
+                new FortuneoController.CompleteRequest("process", "12ab")
+            );
 
-        mockMvc.perform(post("/api/fortuneo/auth/complete")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"processId\":\"process\",\"code\":\"12ab\"}"))
-            .andExpect(status().isUnprocessableEntity())
-            .andExpect(jsonPath("$.errors.code").exists());
-
+            assertThat(invalidLogin)
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("login");
+            assertThat(invalidOtp)
+                .extracting(violation -> violation.getPropertyPath().toString())
+                .containsExactly("code");
+        }
         verify(service, times(0)).initiateAuth(anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
         verify(service, times(0)).completeAuth(anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
     }

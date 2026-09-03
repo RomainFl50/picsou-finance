@@ -23,6 +23,7 @@ CREATE TABLE fortuneo_session (
                 'INVALID_OTP',
                 'AUTH_ATTEMPT_EXPIRED',
                 'SESSION_EXPIRED',
+                'INVESTOR_PROFILE_REQUIRED',
                 'PORTFOLIO_INCOMPLETE',
                 'UPSTREAM_FORMAT_CHANGED',
                 'UPSTREAM_UNAVAILABLE',
@@ -36,3 +37,13 @@ CREATE TABLE fortuneo_session (
             OR (sync_status <> 'FAILED' AND last_sync_error IS NULL)
         )
 );
+
+-- Stable provider-side transaction identifier, used to import a complete
+-- Fortuneo history idempotently instead of replacing a rolling time window.
+-- Nullable: manual rows and connectors without provider ids continue to use
+-- NULL, and the partial index constrains only identified provider rows.
+ALTER TABLE transaction ADD COLUMN IF NOT EXISTS external_id VARCHAR(100);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_transaction_account_external_id
+    ON transaction (account_id, external_id)
+    WHERE external_id IS NOT NULL;
