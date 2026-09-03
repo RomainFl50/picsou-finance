@@ -97,7 +97,20 @@ query amplification of a nested date/ticker loop.
 - Deployment gains one Chromium sidecar and pending authentication contexts are
   process-local, so the sidecar runs as a single replica.
 - The private backend-to-sidecar connection uses HTTP on an isolated Docker
-  network. It is not published outside the host.
+  network. It is not published outside the host. Credentials and the one-time
+  code cross that hop in cleartext, which is an **accepted risk**, not an
+  oversight: the only attacker who can read the bridge is one who already holds
+  root on the host, and that attacker also holds `CRYPTO_ENCRYPTION_KEY` (which
+  decrypts every stored session), the Postgres volume, and the JVM's memory.
+  Encrypting one loopback-equivalent hop does not change that outcome, while
+  certificate provisioning and rotation would become a permanent burden for
+  every self-hoster. The same reasoning already governs the app-to-proxy hop
+  (see the [Caddy opt-in TLS ADR](./2026-07-19-caddy-opt-in-tls-profile.md)):
+  TLS is terminated at the edge, not between co-located containers. This
+  decision reverses the moment the sidecar stops being co-located — and that
+  case is already enforced in code, since `FortuneoAdapter.validateBaseUrl`
+  accepts plain HTTP only for the isolated Compose service name and loopback,
+  and requires HTTPS for any other host.
 - Strict reconciliation can reject a temporarily inconsistent provider response
   and leave data stale until the next successful sync.
 - Public CI verifies deterministic browser navigation and parsers, but cannot
@@ -110,8 +123,11 @@ query amplification of a nested date/ticker loop.
 - `FortuneoPort`, `FortuneoAdapter`, `FortuneoSyncService` and
   `FortuneoTransactionWriter` isolate transport, orchestration and persistence.
 - `fortuneo_session` stores encrypted browser state and observable job status;
-  Flyway migrations `V80` and `V81` contain the complete Fortuneo schema and
-  integration setting without colliding with active feature branches.
+  Flyway migrations `V80`, `V81` and `V82` contain the complete Fortuneo schema
+  and integration setting without colliding with active feature branches. `V82`
+  builds the `transaction.external_id` unique index `CONCURRENTLY`, so it is the
+  one migration that runs outside a transaction — writes to `transaction` are
+  never blocked by the upgrade.
 - Credentials and OTPs are never persisted, and sync failures leave imported
   accounts, holdings, transactions and history unchanged.
 - Sidecar, backend, frontend and end-to-end suites cover deterministic contract,
