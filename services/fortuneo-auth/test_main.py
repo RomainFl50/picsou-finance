@@ -460,6 +460,12 @@ class AccountPayloadContractTest(unittest.TestCase):
                 "label": "Virement",
                 "amount": "10.00",
             })
+        with self.assertRaises(ValidationError):
+            TransactionPayload.model_validate({
+                "date": "2026-13-40",
+                "label": "Virement",
+                "amount": "10.00",
+            })
 
         valid = TransactionPayload.model_validate({
             "date": "2026-07-26",

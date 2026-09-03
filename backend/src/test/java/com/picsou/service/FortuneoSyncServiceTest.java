@@ -1037,16 +1037,27 @@ class FortuneoSyncServiceTest {
 
     @Test
     void applicationStart_marksInterruptedJobsAsRetryableFailures() {
+        FamilyMember secondMember = FamilyMember.builder().id(8L).displayName("Second member").build();
+        when(memberRepository.findAllByOrderByCreatedAtAsc()).thenReturn(List.of(member(), secondMember));
         when(sessionRepository.markInterruptedSyncsFailed(
+            any(),
             any(),
             eq(FortuneoSyncStatus.FAILED),
             any(),
             eq(FortuneoErrorCode.INTERNAL_ERROR)
-        )).thenReturn(2);
+        )).thenReturn(1);
 
         service.recoverInterruptedSyncs();
 
         verify(sessionRepository).markInterruptedSyncsFailed(
+            eq(7L),
+            eq(List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING)),
+            eq(FortuneoSyncStatus.FAILED),
+            any(),
+            eq(FortuneoErrorCode.INTERNAL_ERROR)
+        );
+        verify(sessionRepository).markInterruptedSyncsFailed(
+            eq(8L),
             eq(List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING)),
             eq(FortuneoSyncStatus.FAILED),
             any(),

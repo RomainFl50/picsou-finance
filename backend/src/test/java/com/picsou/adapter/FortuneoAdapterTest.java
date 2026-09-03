@@ -15,9 +15,16 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FortuneoAdapterTest {
+
+    @Test
+    void constructor_acceptsBracketedIpv6LoopbackOverHttp() {
+        assertThatCode(() -> new FortuneoAdapter("http://[::1]:8001", new ObjectMapper()))
+            .doesNotThrowAnyException();
+    }
 
     @Test
     void fetchAccounts_mapsTheStrictSidecarContract() {

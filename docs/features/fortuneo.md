@@ -69,10 +69,11 @@ A timeout is not treated as proof that the submitted credentials were invalid.
 
 The authenticated browser state is encrypted by the backend before it is
 stored. Session status lookups are scoped to the current member. Startup
-recovery is deliberately system-wide so every interrupted member job is
-released before scheduled work starts; scheduled syncs then reuse only valid
-stored sessions. Provider rejections are mapped to stable error codes so the
-frontend can distinguish reconnect, retry and investor-profile actions.
+recovery enumerates members at the system boundary, then repairs interrupted
+jobs through one explicitly member-scoped update per member before scheduled
+work starts. Scheduled syncs then reuse only valid stored sessions. Provider
+rejections are mapped to stable error codes so the frontend can distinguish
+reconnect, retry and investor-profile actions.
 
 The backend rate-limits initiate and complete endpoints separately from normal
 API traffic. Its standard CSRF, authorization and ownership checks still apply.
@@ -194,7 +195,8 @@ backwards from the provider's current balance.
 
 For cash accounts, each transaction amount is reversed from the current balance
 to recover earlier closing balances. Days without activity carry the prior
-closing balance.
+closing balance. Existing snapshots for the ledger range are loaded once before
+the replay, so long histories do not issue one repository query per movement.
 
 For securities accounts, quantities are replayed forward from the first trade in
 the ledger and valued day by day against `price_snapshot`. A day where any held

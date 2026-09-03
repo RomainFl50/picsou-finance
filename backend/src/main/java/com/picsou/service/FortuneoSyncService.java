@@ -908,12 +908,17 @@ public class FortuneoSyncService {
      */
     @Transactional
     public void recoverInterruptedSyncs() {
-        int recovered = sessionRepository.markInterruptedSyncsFailed(
-            List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING),
-            FortuneoSyncStatus.FAILED,
-            Instant.now(),
-            FortuneoErrorCode.INTERNAL_ERROR
-        );
+        Instant completedAt = Instant.now();
+        int recovered = 0;
+        for (FamilyMember member : memberRepository.findAllByOrderByCreatedAtAsc()) {
+            recovered += sessionRepository.markInterruptedSyncsFailed(
+                member.getId(),
+                List.of(FortuneoSyncStatus.QUEUED, FortuneoSyncStatus.RUNNING),
+                FortuneoSyncStatus.FAILED,
+                completedAt,
+                FortuneoErrorCode.INTERNAL_ERROR
+            );
+        }
         if (recovered > 0) {
             log.warn("Recovered {} interrupted Fortuneo sync job(s)", recovered);
         }

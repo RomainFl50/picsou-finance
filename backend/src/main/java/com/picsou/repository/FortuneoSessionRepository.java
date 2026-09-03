@@ -19,10 +19,6 @@ public interface FortuneoSessionRepository extends JpaRepository<FortuneoSession
 
     boolean existsByMemberIdAndActiveTrue(Long memberId);
 
-    /**
-     * System-scoped startup repair. Unlike request-time access, this must release
-     * interrupted jobs for every member before the scheduler starts.
-     */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
         UPDATE FortuneoSession session
@@ -30,8 +26,10 @@ public interface FortuneoSessionRepository extends JpaRepository<FortuneoSession
             session.lastSyncCompletedAt = :completedAt,
             session.lastSyncError = :errorCode
         WHERE session.syncStatus IN :interrupted
+          AND session.member.id = :memberId
         """)
     int markInterruptedSyncsFailed(
+        @Param("memberId") Long memberId,
         @Param("interrupted") Collection<FortuneoSyncStatus> interrupted,
         @Param("failed") FortuneoSyncStatus failed,
         @Param("completedAt") Instant completedAt,

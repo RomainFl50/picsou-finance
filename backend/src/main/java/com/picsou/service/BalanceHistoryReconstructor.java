@@ -100,7 +100,7 @@ public class BalanceHistoryReconstructor {
         BigDecimal balanceToday,
         LocalDate today
     ) {
-        Map<LocalDate, BigDecimal> dailyMovement = new TreeMap<>(Comparator.reverseOrder());
+        TreeMap<LocalDate, BigDecimal> dailyMovement = new TreeMap<>(Comparator.reverseOrder());
         for (Transaction tx : ledger) {
             if (tx.getDate() == null || tx.getAmount() == null || tx.getDate().isAfter(today)) {
                 continue;
@@ -111,12 +111,19 @@ public class BalanceHistoryReconstructor {
             return 0;
         }
 
+        LocalDate oldestDay = dailyMovement.lastKey();
+        Set<LocalDate> existingDates = new HashSet<>();
+        for (BalanceSnapshot snapshot : snapshotRepository
+            .findByAccountIdAndDateBetweenOrderByDateAsc(account.getId(), oldestDay, today)) {
+            existingDates.add(snapshot.getDate());
+        }
+
         List<BalanceSnapshot> created = new ArrayList<>();
         BigDecimal running = balanceToday;
         for (Map.Entry<LocalDate, BigDecimal> day : dailyMovement.entrySet()) {
             // A cash account has no cost basis distinct from its balance -- the same convention
             // DashboardService applies to an account with no holdings.
-            addIfAbsent(created, account, day.getKey(), running, running);
+            addIfAbsent(created, account, day.getKey(), running, running, existingDates);
             running = running.subtract(day.getValue());
         }
         return persist(account, created);
@@ -312,19 +319,6 @@ public class BalanceHistoryReconstructor {
         }
         created.add(snapshot(account, date, balance, investedAmount));
         existingDates.add(date);
-    }
-
-    private void addIfAbsent(
-        List<BalanceSnapshot> created,
-        Account account,
-        LocalDate date,
-        BigDecimal balance,
-        BigDecimal investedAmount
-    ) {
-        if (snapshotRepository.findByAccountIdAndDate(account.getId(), date).isPresent()) {
-            return;
-        }
-        created.add(snapshot(account, date, balance, investedAmount));
     }
 
     private BalanceSnapshot snapshot(

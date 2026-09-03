@@ -29,7 +29,7 @@ public class FortuneoAdapter implements FortuneoPort {
     private static final Duration DEFAULT_AUTH_TIMEOUT = Duration.ofSeconds(45);
     private static final Duration DEFAULT_PORTFOLIO_TIMEOUT = Duration.ofSeconds(120);
     private static final Set<String> TRUSTED_HTTP_HOSTS = Set.of(
-        "fortuneo-auth", "localhost", "127.0.0.1", "::1"
+        "fortuneo-auth", "localhost", "127.0.0.1", "::1", "[::1]"
     );
 
     private final WebClient client;

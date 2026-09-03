@@ -24,7 +24,7 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from playwright.async_api import (
     Browser,
     BrowserContext,
@@ -443,6 +443,15 @@ class TransactionPayload(BaseModel):
     fees: Decimal | None = None
     # Only ever set from the provider's own label -> ISIN table, never inferred.
     isin: str | None = Field(default=None, min_length=12, max_length=12)
+
+    @field_validator("date")
+    @classmethod
+    def date_must_be_a_real_iso_day(cls, value: str) -> str:
+        try:
+            date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("date must be a valid ISO calendar day") from exc
+        return value
 
 
 class AccountPayload(BaseModel):
@@ -1731,7 +1740,7 @@ async def accounts(req: AccountsRequest) -> list[AccountPayload]:
             raise HTTPException(status_code=502, detail="PORTFOLIO_INCOMPLETE")
         folded_accounts = fold_cash_pockets_into_securities_accounts(raw_accounts)
 
-        payloads: list[dict[str, Any]] = []
+        payloads: list[AccountPayload] = []
         # Opened lazily on the first securities account -- a cash-only
         # customer never needs the legacy frontend at all.
         legacy_page: Page | None = None
@@ -1795,30 +1804,7 @@ async def accounts(req: AccountsRequest) -> list[AccountPayload]:
             transactions = await _transactions_for_account(
                 page, api_key, account, securities_ledger
             )
-            transaction_cutoff = date.today() - timedelta(days=90)
-            older_than_window = sum(
-                1
-                for transaction in transactions
-                if date.fromisoformat(transaction["date"]) < transaction_cutoff
-            )
-            dividend_like = sum(
-                1
-                for transaction in transactions
-                if re.match(
-                    r"^(?:TNC\s+)?Div\b",
-                    transaction["label"].strip(),
-                    flags=re.IGNORECASE,
-                )
-            )
-            log.info(
-                "Fortuneo transaction feed summary "
-                "(account_type=%s; count=%s; older_than_90_days=%s; dividend_like=%s)",
-                account["type"],
-                len(transactions),
-                older_than_window,
-                dividend_like,
-            )
-            payloads.append({
+            payload = AccountPayload.model_validate({
                 "externalId": account["webId"],
                 "name": _account_name(account),
                 "type": account["type"],
@@ -1828,8 +1814,32 @@ async def accounts(req: AccountsRequest) -> list[AccountPayload]:
                 "transactions": transactions,
                 "snapshotComplete": True,
             })
+            transaction_cutoff = date.today() - timedelta(days=90)
+            older_than_window = sum(
+                1
+                for transaction in payload.transactions
+                if date.fromisoformat(transaction.date) < transaction_cutoff
+            )
+            dividend_like = sum(
+                1
+                for transaction in payload.transactions
+                if re.match(
+                    r"^(?:TNC\s+)?Div\b",
+                    transaction.label.strip(),
+                    flags=re.IGNORECASE,
+                )
+            )
+            log.info(
+                "Fortuneo transaction feed summary "
+                "(account_type=%s; count=%s; older_than_90_days=%s; dividend_like=%s)",
+                account["type"],
+                len(payload.transactions),
+                older_than_window,
+                dividend_like,
+            )
+            payloads.append(payload)
 
-        return [AccountPayload.model_validate(payload) for payload in payloads]
+        return payloads
     except HTTPException as exc:
         # SESSION_EXPIRED here means the restored session was rejected --
         # capture what the page actually shows (still a login form? an

@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,8 +55,6 @@ class BalanceHistoryReconstructorTest {
         reconstructor = new BalanceHistoryReconstructor(
             transactionRepository, snapshotRepository, priceSnapshotRepository);
         pricesByTicker = new HashMap<>();
-        lenient().when(snapshotRepository.findByAccountIdAndDate(anyLong(), any()))
-            .thenReturn(Optional.empty());
         lenient().when(snapshotRepository.findByAccountIdAndDateBetweenOrderByDateAsc(
             anyLong(), any(), any())).thenReturn(List.of());
         lenient().when(priceSnapshotRepository.findByTickerInAndDateBetween(any(), any(), any()))
@@ -135,13 +132,18 @@ class BalanceHistoryReconstructorTest {
         // observed directly. Either is better evidence than a reconstruction.
         when(transactionRepository.findByAccountIdAndIsManualFalse(20L))
             .thenReturn(List.of(cashRow(TODAY.minusDays(1), "-50")));
-        when(snapshotRepository.findByAccountIdAndDate(20L, TODAY.minusDays(1)))
-            .thenReturn(Optional.of(BalanceSnapshot.builder().build()));
+        when(snapshotRepository.findByAccountIdAndDateBetweenOrderByDateAsc(
+            20L, TODAY.minusDays(1), TODAY)).thenReturn(List.of(
+                BalanceSnapshot.builder().date(TODAY.minusDays(1)).build()
+            ));
 
         int created = reconstructor.reconstruct(account(AccountType.CHECKING), new BigDecimal("1000"), TODAY);
 
         assertThat(created).isZero();
         verify(snapshotRepository, never()).saveAll(any());
+        verify(snapshotRepository).findByAccountIdAndDateBetweenOrderByDateAsc(
+            20L, TODAY.minusDays(1), TODAY);
+        verify(snapshotRepository, never()).findByAccountIdAndDate(anyLong(), any());
     }
 
     @Test
