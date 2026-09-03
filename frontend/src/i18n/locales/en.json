@@ -736,7 +736,7 @@
       "clearSession": "Disconnect",
       "noSession": "No active session",
       "sessionActive": "Active session",
-      "scope": "Syncs positions, average cost, price, valuation and cash for PEA, securities, and cash accounts, plus recent transactions.",
+      "scope": "Syncs positions, average cost, price, valuation and cash for PEA, securities, and current accounts, plus recent transactions.",
       "errors": {
         "tooManyAttempts": "Too many attempts. Please wait.",
         "invalidCredentials": "Invalid Fortuneo credentials.",
@@ -1160,7 +1160,7 @@
         },
         "fortuneo": {
           "title": "Fortuneo",
-          "description": "Sync your PEA, securities account, and cash accounts with two-factor authentication."
+          "description": "Sync your PEA, securities account, and current accounts with two-factor authentication."
         },
         "finary": {
           "title": "Finary",
@@ -1310,7 +1310,7 @@
     "fortuneo": {
       "title": "Fortuneo is ready.",
       "body": "After setup, sign in with your Fortuneo credentials and the 6-digit security code.",
-      "tip": "Picsou only stores an encrypted session. Your password and 2FA code are never stored. Imported accounts remain attached to their PEA, securities, or cash account.",
+      "tip": "Picsou only stores an encrypted session. Your password and 2FA code are never stored. Imported accounts remain attached to their PEA, securities, or current account.",
       "cta": "Enable Fortuneo",
       "skip": "Don't enable Fortuneo"
     }

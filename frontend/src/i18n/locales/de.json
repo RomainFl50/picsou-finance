@@ -736,7 +736,7 @@
       "clearSession": "Trennen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Aktive Sitzung",
-      "scope": "Synchronisiert Positionen, Einstandspreis, Kurs, Bewertung und Bargeld für PEA-, Wertpapier- und Bargeldkonten sowie aktuelle Transaktionen.",
+      "scope": "Synchronisiert Positionen, Einstandspreis, Kurs, Bewertung und Bargeld für PEA-, Wertpapier- und Girokonten sowie aktuelle Transaktionen.",
       "errors": {
         "tooManyAttempts": "Zu viele Versuche. Bitte warten.",
         "invalidCredentials": "Ungültige Fortuneo-Zugangsdaten.",
@@ -1156,7 +1156,7 @@
         },
         "fortuneo": {
           "title": "Fortuneo",
-          "description": "Synchronisieren Sie Ihr PEA, Wertpapier- und Girokonto mit Zwei-Faktor-Authentifizierung."
+          "description": "Synchronisiere dein PEA, Wertpapier- und Girokonto mit Zwei-Faktor-Authentifizierung."
         },
         "traderepublic": {
           "title": "Trade Republic",
@@ -1310,7 +1310,7 @@
     "fortuneo": {
       "title": "Fortuneo ist bereit.",
       "body": "Melde dich nach der Einrichtung mit deinen Fortuneo-Zugangsdaten und dem 6-stelligen Sicherheitscode an.",
-      "tip": "Picsou speichert nur eine verschlüsselte Sitzung. Passwort und 2FA-Code werden nie gespeichert. Importierte Konten bleiben ihrem PEA-, Wertpapier- oder Bargeldkonto zugeordnet.",
+      "tip": "Picsou speichert nur eine verschlüsselte Sitzung. Passwort und 2FA-Code werden nie gespeichert. Importierte Konten bleiben ihrem PEA-, Wertpapier- oder Girokonto zugeordnet.",
       "cta": "Fortuneo aktivieren",
       "skip": "Fortuneo nicht aktivieren"
     }

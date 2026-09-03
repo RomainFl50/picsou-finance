@@ -736,7 +736,7 @@
       "clearSession": "Desconectar",
       "noSession": "No hay sesión activa",
       "sessionActive": "Sesión activa",
-      "scope": "Sincroniza posiciones, coste medio, cotización, valoración y efectivo de cuentas PEA, de valores y de efectivo, además de las transacciones recientes.",
+      "scope": "Sincroniza posiciones, coste medio, cotización, valoración y efectivo de cuentas PEA, de valores y corrientes, además de las transacciones recientes.",
       "errors": {
         "tooManyAttempts": "Demasiados intentos. Espera un momento.",
         "invalidCredentials": "Credenciales de Fortuneo no válidas.",
@@ -1168,7 +1168,7 @@
         },
         "fortuneo": {
           "title": "Fortuneo",
-          "description": "Sincroniza tu PEA, cuenta de valores y cuentas de efectivo con autenticación de dos factores."
+          "description": "Sincroniza tu PEA, cuenta de valores y cuentas corrientes con autenticación de dos factores."
         }
       },
       "hint": {
@@ -1310,7 +1310,7 @@
     "fortuneo": {
       "title": "Fortuneo está listo.",
       "body": "Tras la configuración, inicia sesión con tus credenciales de Fortuneo y el código de seguridad de 6 dígitos.",
-      "tip": "Picsou solo guarda una sesión cifrada. La contraseña y el código 2FA nunca se almacenan. Las cuentas importadas permanecen vinculadas a su PEA, cuenta de valores o cuenta de efectivo.",
+      "tip": "Picsou solo guarda una sesión cifrada. La contraseña y el código 2FA nunca se almacenan. Las cuentas importadas permanecen vinculadas a su PEA, cuenta de valores o cuenta corriente.",
       "cta": "Activar Fortuneo",
       "skip": "No activar Fortuneo"
     }

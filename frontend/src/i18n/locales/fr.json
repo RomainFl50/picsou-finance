@@ -736,7 +736,7 @@
       "clearSession": "Déconnecter",
       "noSession": "Aucune session active",
       "sessionActive": "Session active",
-      "scope": "Synchronise les positions, le PRU, le cours, la valorisation et les liquidités de vos PEA, comptes-titres et comptes espèces, ainsi que les transactions récentes.",
+      "scope": "Synchronise les positions, le PRU, le cours, la valorisation et les liquidités de vos PEA, comptes-titres et comptes courants, ainsi que les transactions récentes.",
       "errors": {
         "tooManyAttempts": "Trop de tentatives. Veuillez patienter.",
         "invalidCredentials": "Identifiants Fortuneo invalides.",
@@ -1168,7 +1168,7 @@
         },
         "fortuneo": {
           "title": "Fortuneo",
-          "description": "Synchronisez votre PEA, compte-titres et comptes espèces avec une authentification 2FA."
+          "description": "Synchronisez votre PEA, compte-titres et comptes courants avec une authentification 2FA."
         }
       },
       "hint": {
@@ -1310,7 +1310,7 @@
     "fortuneo": {
       "title": "Fortuneo est prêt.",
       "body": "Vous vous connecterez après l'installation avec vos identifiants Fortuneo, puis le code de sécurité à 6 chiffres.",
-      "tip": "Picsou conserve uniquement une session chiffrée. Le mot de passe et le code 2FA ne sont jamais enregistrés. Les comptes restent rattachés à leur PEA, compte-titres ou compte espèces.",
+      "tip": "Picsou conserve uniquement une session chiffrée. Le mot de passe et le code 2FA ne sont jamais enregistrés. Les comptes restent rattachés à leur PEA, compte-titres ou compte courant.",
       "cta": "Activer Fortuneo",
       "skip": "Ne pas activer Fortuneo"
     }
